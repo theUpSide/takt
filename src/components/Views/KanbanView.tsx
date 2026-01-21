@@ -8,12 +8,12 @@ import clsx from 'clsx'
 import type { Item, Category } from '@/types'
 
 export default function KanbanView() {
-  const { updateItem } = useItemStore()
+  const { items, updateItem } = useItemStore()
   const { categories } = useCategoryStore()
   const { filters } = useViewStore()
   const getFilteredItems = useItemStore((state) => state.getFilteredItems)
 
-  const filteredItems = useMemo(() => getFilteredItems(filters), [getFilteredItems, filters])
+  const filteredItems = useMemo(() => getFilteredItems(filters), [getFilteredItems, filters, items])
 
   // Group items by category
   const itemsByCategory = useMemo(() => {
