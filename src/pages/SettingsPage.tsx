@@ -3,9 +3,11 @@ import CategoryManager from '@/components/Settings/CategoryManager'
 import CalendarSources from '@/components/Settings/CalendarSources'
 import PeopleManager from '@/components/Settings/PeopleManager'
 import { useThemeStore, themeLabels, themeDescriptions, type ThemeName } from '@/stores/themeStore'
+import { useAIStore } from '@/stores/aiStore'
+import { useToastStore } from '@/stores/toastStore'
 import clsx from 'clsx'
 
-type SettingsTab = 'appearance' | 'categories' | 'calendars' | 'people'
+type SettingsTab = 'appearance' | 'ai' | 'categories' | 'calendars' | 'people'
 
 const themeOptions: ThemeName[] = ['default', 'midnight', 'matrix', 'light']
 
@@ -19,6 +21,20 @@ const themePreviewColors: Record<ThemeName, { bg: string; accent: string; text: 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<SettingsTab>('appearance')
   const { theme, setTheme } = useThemeStore()
+  const { apiKey, setApiKey } = useAIStore()
+  const toast = useToastStore()
+  const [tempApiKey, setTempApiKey] = useState(apiKey || '')
+  const [showApiKey, setShowApiKey] = useState(false)
+
+  const handleSaveApiKey = () => {
+    if (tempApiKey.trim()) {
+      setApiKey(tempApiKey.trim())
+      toast.success('API key saved')
+    } else {
+      setApiKey(null)
+      toast.info('API key removed')
+    }
+  }
 
   const tabs: { id: SettingsTab; label: string; icon: JSX.Element }[] = [
     {
@@ -27,6 +43,15 @@ export default function SettingsPage() {
       icon: (
         <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
+        </svg>
+      ),
+    },
+    {
+      id: 'ai',
+      label: 'AI Assistant',
+      icon: (
+        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
         </svg>
       ),
     },
@@ -186,6 +211,113 @@ export default function SettingsPage() {
                     <div className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow" />
                   </div>
                 </label>
+              </div>
+            </div>
+          </div>
+        )}
+        {activeTab === 'ai' && (
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-lg font-semibold text-theme-text-primary mb-1">Claude AI Integration</h2>
+              <p className="text-sm text-theme-text-muted mb-4">
+                Enable natural language task creation with Claude. Use the Smart Entry (⌘K) to create tasks by typing naturally.
+              </p>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-theme-text-primary mb-2">
+                    Anthropic API Key
+                  </label>
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <input
+                        type={showApiKey ? 'text' : 'password'}
+                        value={tempApiKey}
+                        onChange={(e) => setTempApiKey(e.target.value)}
+                        placeholder="sk-ant-..."
+                        className="w-full rounded-lg border border-theme-border-primary bg-theme-bg-secondary px-4 py-2.5 text-theme-text-primary placeholder:text-theme-text-muted focus:border-theme-accent-primary focus:outline-none focus:ring-2 focus:ring-theme-accent-primary/20 transition-all-fast"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowApiKey(!showApiKey)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-theme-text-muted hover:text-theme-text-primary transition-all-fast"
+                      >
+                        {showApiKey ? (
+                          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                          </svg>
+                        ) : (
+                          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                          </svg>
+                        )}
+                      </button>
+                    </div>
+                    <button
+                      onClick={handleSaveApiKey}
+                      className="rounded-lg bg-theme-accent-primary px-4 py-2.5 text-sm font-medium text-white hover:opacity-90 transition-all-fast btn-press"
+                    >
+                      Save
+                    </button>
+                  </div>
+                  <p className="mt-2 text-xs text-theme-text-muted">
+                    Get your API key from{' '}
+                    <a
+                      href="https://console.anthropic.com/settings/keys"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-theme-accent-primary hover:underline"
+                    >
+                      console.anthropic.com
+                    </a>
+                  </p>
+                </div>
+
+                {apiKey && (
+                  <div className="rounded-lg border border-theme-accent-success/30 bg-theme-accent-success/10 p-4">
+                    <div className="flex items-center gap-2 text-theme-accent-success">
+                      <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      <span className="font-medium">API key configured</span>
+                    </div>
+                    <p className="mt-1 text-sm text-theme-text-secondary">
+                      Smart Entry is ready to use. Press ⌘K anywhere to open.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="border-t border-theme-border-primary pt-6">
+              <h2 className="text-lg font-semibold text-theme-text-primary mb-1">How to Use</h2>
+              <p className="text-sm text-theme-text-muted mb-4">
+                Type naturally and Claude will create tasks for you
+              </p>
+
+              <div className="space-y-3">
+                <div className="rounded-lg border border-theme-border-primary p-4">
+                  <p className="font-medium text-theme-text-primary mb-2">Example commands:</p>
+                  <ul className="space-y-2 text-sm text-theme-text-secondary">
+                    <li className="flex items-start gap-2">
+                      <span className="text-theme-accent-primary">→</span>
+                      <span>"remind me to call mom tomorrow"</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-theme-accent-primary">→</span>
+                      <span>"add work task: review quarterly report by Friday"</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-theme-accent-primary">→</span>
+                      <span>"schedule meeting with John next Tuesday at 2pm"</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-theme-accent-primary">→</span>
+                      <span>"mark buy groceries as done"</span>
+                    </li>
+                  </ul>
+                </div>
               </div>
             </div>
           </div>

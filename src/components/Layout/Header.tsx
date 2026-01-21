@@ -2,6 +2,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { useViewStore } from '@/stores/viewStore'
 import { useAuthStore } from '@/stores/authStore'
 import { useThemeStore, themeLabels, type ThemeName } from '@/stores/themeStore'
+import { useAIStore } from '@/stores/aiStore'
 import type { ViewType } from '@/types'
 import clsx from 'clsx'
 
@@ -40,6 +41,7 @@ export default function Header() {
   const { toggleSidebar, openCreateTaskModal, openCreateEventModal } = useViewStore()
   const { signOut } = useAuthStore()
   const { theme, cycleTheme } = useThemeStore()
+  const { openCommandBar } = useAIStore()
 
   const currentView = location.pathname.split('/').pop() as ViewType
 
@@ -97,6 +99,21 @@ export default function Header() {
       </nav>
 
       <div className="flex items-center gap-2">
+        {/* Smart Command Bar Button */}
+        <button
+          onClick={openCommandBar}
+          className="flex items-center gap-2 rounded-lg border border-theme-border-primary px-3 py-1.5 text-sm font-medium text-theme-text-secondary hover:bg-theme-bg-hover hover:text-theme-text-primary hover:border-theme-accent-primary transition-all-fast btn-press"
+          title="Smart Entry (⌘K)"
+        >
+          <svg className="h-4 w-4 text-theme-accent-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+          </svg>
+          <span className="hidden lg:inline">Smart Entry</span>
+          <kbd className="hidden sm:flex items-center gap-0.5 rounded bg-theme-bg-tertiary px-1.5 py-0.5 text-xs font-mono text-theme-text-muted">
+            ⌘K
+          </kbd>
+        </button>
+
         <button
           onClick={cycleTheme}
           className="group relative flex items-center gap-2 rounded-lg border border-theme-border-primary px-3 py-1.5 text-sm font-medium text-theme-text-secondary hover:bg-theme-bg-hover hover:text-theme-text-primary hover:border-theme-accent-primary transition-all-fast btn-press"
