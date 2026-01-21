@@ -137,4 +137,22 @@ export function isFutureDate(date: string | Date): boolean {
   return isAfter(d, new Date())
 }
 
+/**
+ * Get today's date in local timezone as YYYY-MM-DD
+ * This avoids UTC conversion issues with toISOString()
+ */
+export function getLocalDateString(date: Date = new Date()): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+/**
+ * Get today's date as YYYY-MM-DD in local timezone
+ */
+export function getTodayString(): string {
+  return getLocalDateString(new Date())
+}
+
 export { parseISO, isBefore, isAfter }

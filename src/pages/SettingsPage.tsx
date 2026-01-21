@@ -2,12 +2,13 @@ import { useState } from 'react'
 import CategoryManager from '@/components/Settings/CategoryManager'
 import CalendarSources from '@/components/Settings/CalendarSources'
 import PeopleManager from '@/components/Settings/PeopleManager'
+import SMSLogViewer from '@/components/Settings/SMSLogViewer'
 import { useThemeStore, themeLabels, themeDescriptions, type ThemeName } from '@/stores/themeStore'
 import { useAIStore } from '@/stores/aiStore'
 import { useToastStore } from '@/stores/toastStore'
 import clsx from 'clsx'
 
-type SettingsTab = 'appearance' | 'ai' | 'categories' | 'calendars' | 'people'
+type SettingsTab = 'appearance' | 'ai' | 'sms' | 'categories' | 'calendars' | 'people'
 
 const themeOptions: ThemeName[] = ['default', 'midnight', 'matrix', 'light']
 
@@ -52,6 +53,15 @@ export default function SettingsPage() {
       icon: (
         <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+        </svg>
+      ),
+    },
+    {
+      id: 'sms',
+      label: 'SMS',
+      icon: (
+        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
         </svg>
       ),
     },
@@ -322,6 +332,7 @@ export default function SettingsPage() {
             </div>
           </div>
         )}
+        {activeTab === 'sms' && <SMSLogViewer />}
         {activeTab === 'categories' && <CategoryManager />}
         {activeTab === 'calendars' && <CalendarSources />}
         {activeTab === 'people' && <PeopleManager />}

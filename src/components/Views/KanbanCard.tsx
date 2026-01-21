@@ -36,11 +36,13 @@ export default function KanbanCard({ item, isDragging }: KanbanCardProps) {
       <div className="flex items-start gap-3">
         {/* Checkbox for tasks */}
         {item.type === 'task' && (
-          <Checkbox
-            checked={item.completed}
-            onChange={() => toggleComplete(item.id)}
-            className="mt-0.5"
-          />
+          <div onClick={(e) => e.stopPropagation()}>
+            <Checkbox
+              checked={item.completed}
+              onChange={() => toggleComplete(item.id)}
+              className="mt-0.5"
+            />
+          </div>
         )}
 
         {/* Title */}

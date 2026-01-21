@@ -25,6 +25,12 @@ interface ItemState {
   // Filters
   getFilteredItems: (filters: ItemFilters) => Item[]
 
+  // Daily Planner selectors
+  getItemsForDate: (date: string) => Item[]
+  getUnscheduledTasks: () => Item[]
+  scheduleItem: (id: string, date: string, startTime: string, durationMinutes?: number) => Promise<Item | null>
+  unscheduleItem: (id: string) => Promise<Item | null>
+
   // Subscriptions
   subscribeToChanges: () => () => void
 }
@@ -75,6 +81,10 @@ export const useItemStore = create<ItemState>((set, get) => ({
         end_time: data.end_time,
         due_date: data.due_date,
         source: data.source ?? 'manual',
+        // Daily planner scheduling fields
+        scheduled_date: data.scheduled_date,
+        scheduled_start: data.scheduled_start,
+        duration_minutes: data.duration_minutes ?? 30,
       })
       .select('*, category:categories(*)')
       .single()
@@ -252,6 +262,62 @@ export const useItemStore = create<ItemState>((set, get) => ({
     }
 
     return filtered
+  },
+
+  // Daily Planner: Get all items for a specific date
+  getItemsForDate: (date: string) => {
+    const items = get().items
+    return items.filter((item) => {
+      // For events, check if start_time falls on this date
+      if (item.type === 'event' && item.start_time) {
+        return item.start_time.startsWith(date)
+      }
+      // For tasks, check scheduled_date
+      if (item.type === 'task' && item.scheduled_date) {
+        return item.scheduled_date === date
+      }
+      return false
+    })
+  },
+
+  // Daily Planner: Get all unscheduled tasks
+  getUnscheduledTasks: () => {
+    const items = get().items
+    return items.filter((item) => {
+      return item.type === 'task' && !item.completed && !item.scheduled_date
+    })
+  },
+
+  // Daily Planner: Schedule an item to a specific date and time
+  scheduleItem: async (id: string, date: string, startTime: string, durationMinutes?: number) => {
+    const toast = useToastStore.getState()
+    const item = get().items.find((i) => i.id === id)
+    if (!item) return null
+
+    const result = await get().updateItem(id, {
+      scheduled_date: date,
+      scheduled_start: startTime,
+      duration_minutes: durationMinutes ?? item.duration_minutes ?? 30,
+    })
+
+    if (result) {
+      toast.success('Task scheduled')
+    }
+    return result
+  },
+
+  // Daily Planner: Remove scheduling from an item
+  unscheduleItem: async (id: string) => {
+    const toast = useToastStore.getState()
+    const result = await get().updateItem(id, {
+      scheduled_date: null,
+      scheduled_start: null,
+    })
+
+    if (result) {
+      toast.success('Task unscheduled')
+    }
+    return result
   },
 
   subscribeToChanges: () => {

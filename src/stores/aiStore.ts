@@ -4,6 +4,8 @@ import Anthropic from '@anthropic-ai/sdk'
 import { useItemStore } from './itemStore'
 import { useCategoryStore } from './categoryStore'
 import { useToastStore } from './toastStore'
+import { getTodayString } from '@/lib/dateUtils'
+import type { Item } from '@/types'
 
 interface ParsedAction {
   type: 'create_task' | 'create_event' | 'complete_task' | 'delete_task' | 'update_task' | 'unknown'
@@ -19,6 +21,17 @@ interface ParsedAction {
   message?: string
 }
 
+interface ScheduleSuggestion {
+  item_id: string
+  scheduled_start: string
+  duration_minutes: number
+}
+
+interface OptimizationResult {
+  schedule: ScheduleSuggestion[]
+  reasoning: string
+}
+
 interface AIState {
   apiKey: string | null
   isProcessing: boolean
@@ -32,6 +45,8 @@ interface AIState {
   toggleCommandBar: () => void
   processNaturalLanguage: (input: string) => Promise<ParsedAction>
   executeAction: (action: ParsedAction) => Promise<boolean>
+  // Schedule optimization
+  optimizeSchedule: (date: string, scheduledItems: Item[], unscheduledTasks: Item[]) => Promise<OptimizationResult | null>
 }
 
 const SYSTEM_PROMPT = `You are an AI assistant for a task management app called Takt. Your job is to parse natural language input and convert it into structured actions.
@@ -102,9 +117,11 @@ export const useAIStore = create<AIState>()(
         try {
           const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true })
 
-          // Get current date context
+          // Get current date context (using local time, not UTC)
           const now = new Date()
-          const dateContext = `Current date/time: ${now.toISOString()}. Today is ${now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}.`
+          const localDateStr = getTodayString()
+          const localTimeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
+          const dateContext = `Current date: ${localDateStr} (${now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}). Current local time: ${localTimeStr}.`
 
           // Get categories for context
           const categories = useCategoryStore.getState().categories
@@ -258,6 +275,117 @@ export const useAIStore = create<AIState>()(
         } catch (error) {
           toast.error('Failed to execute action')
           return false
+        }
+      },
+
+      optimizeSchedule: async (date: string, scheduledItems: Item[], unscheduledTasks: Item[]): Promise<OptimizationResult | null> => {
+        const { apiKey } = get()
+        const toast = useToastStore.getState()
+
+        if (!apiKey) {
+          toast.error('Please set your Anthropic API key in Settings')
+          return null
+        }
+
+        set({ isProcessing: true, lastError: null })
+
+        try {
+          const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true })
+
+          // Build context about existing schedule
+          const existingEvents = scheduledItems
+            .filter(item => item.type === 'event')
+            .map(item => ({
+              id: item.id,
+              title: item.title,
+              start: item.start_time?.split('T')[1]?.substring(0, 5) || '',
+              duration: item.duration_minutes || 60,
+              type: 'event (fixed)',
+            }))
+
+          const existingScheduledTasks = scheduledItems
+            .filter(item => item.type === 'task')
+            .map(item => ({
+              id: item.id,
+              title: item.title,
+              start: item.scheduled_start || '',
+              duration: item.duration_minutes || 30,
+              type: 'task (scheduled)',
+            }))
+
+          const availableTasks = unscheduledTasks.map(item => ({
+            id: item.id,
+            title: item.title,
+            category: item.category?.name || 'None',
+            due_date: item.due_date,
+            duration: item.duration_minutes || 30,
+          }))
+
+          const scheduleSystemPrompt = `You are a productivity assistant helping optimize a daily schedule for ${date}.
+
+Your job is to suggest optimal time slots for unscheduled tasks, while respecting existing fixed events.
+
+Guidelines:
+- Events (meetings, appointments) are FIXED and cannot be moved
+- Tasks can be placed in any available time slot between 6:00 AM and 10:00 PM
+- Respect task duration estimates
+- Place high-priority or time-sensitive tasks (those with due dates) earlier in the day
+- Group similar category tasks together when possible
+- Include 15-minute buffers between activities when reasonable
+- Peak productivity hours are typically 9-11 AM and 2-4 PM - place important tasks there
+- Avoid scheduling right before/after fixed events without buffer time
+
+Response format (JSON only, no markdown):
+{
+  "schedule": [
+    { "item_id": "task-uuid", "scheduled_start": "HH:MM", "duration_minutes": 30 },
+    { "item_id": "task-uuid", "scheduled_start": "HH:MM", "duration_minutes": 45 }
+  ],
+  "reasoning": "Brief explanation of the scheduling decisions made"
+}
+
+Only include tasks that you're suggesting to schedule. Don't include already-scheduled items or events.
+If no tasks need scheduling or there's no room, return an empty schedule array with an explanation.`
+
+          const userContent = `
+Existing Fixed Events (cannot be moved):
+${existingEvents.length > 0 ? JSON.stringify(existingEvents, null, 2) : 'None'}
+
+Already Scheduled Tasks:
+${existingScheduledTasks.length > 0 ? JSON.stringify(existingScheduledTasks, null, 2) : 'None'}
+
+Unscheduled Tasks (need scheduling):
+${availableTasks.length > 0 ? JSON.stringify(availableTasks, null, 2) : 'None'}
+
+Please suggest an optimal schedule for the unscheduled tasks.`
+
+          const response = await client.messages.create({
+            model: 'claude-sonnet-4-20250514',
+            max_tokens: 2048,
+            system: scheduleSystemPrompt,
+            messages: [
+              {
+                role: 'user',
+                content: userContent,
+              },
+            ],
+          })
+
+          const content = response.content[0]
+          if (content.type !== 'text') {
+            throw new Error('Unexpected response type')
+          }
+
+          // Parse the JSON response
+          const parsed = JSON.parse(content.text) as OptimizationResult
+          set({ isProcessing: false })
+          toast.success('Schedule optimized! Review suggestions below.')
+          return parsed
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : 'Failed to optimize schedule'
+          set({ isProcessing: false, lastError: errorMessage })
+          toast.error('Failed to optimize schedule')
+          return null
         }
       },
     }),

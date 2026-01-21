@@ -1,9 +1,10 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd'
 import { useItemStore } from '@/stores/itemStore'
 import { useCategoryStore } from '@/stores/categoryStore'
 import { useViewStore } from '@/stores/viewStore'
 import KanbanCard from './KanbanCard'
+import clsx from 'clsx'
 import type { Item, Category } from '@/types'
 
 export default function KanbanView() {
@@ -80,6 +81,21 @@ interface KanbanColumnProps {
 
 function KanbanColumn({ category, items, index }: KanbanColumnProps) {
   const droppableId = category?.id || 'uncategorized'
+  const [completedExpanded, setCompletedExpanded] = useState(false)
+
+  // Split items into active and completed
+  const { activeItems, completedItems } = useMemo(() => {
+    const active: Item[] = []
+    const completed: Item[] = []
+    items.forEach(item => {
+      if (item.completed) {
+        completed.push(item)
+      } else {
+        active.push(item)
+      }
+    })
+    return { activeItems: active, completedItems: completed }
+  }, [items])
 
   return (
     <div
@@ -102,21 +118,22 @@ function KanbanColumn({ category, items, index }: KanbanColumnProps) {
           {category?.name || 'Uncategorized'}
         </h3>
         <span className="ml-auto flex h-6 w-6 items-center justify-center rounded-full bg-theme-bg-hover text-xs font-medium text-theme-text-secondary">
-          {items.length}
+          {activeItems.length}
         </span>
       </div>
 
-      {/* Cards */}
+      {/* Active Cards */}
       <Droppable droppableId={droppableId}>
         {(provided, snapshot) => (
           <div
             ref={provided.innerRef}
             {...provided.droppableProps}
-            className={`flex-1 space-y-2 overflow-y-auto p-2 transition-all-fast ${
-              snapshot.isDraggingOver ? 'bg-theme-accent-primary/10' : ''
-            }`}
+            className={clsx(
+              'flex-1 space-y-2 overflow-y-auto p-2 transition-all-fast',
+              snapshot.isDraggingOver && 'bg-theme-accent-primary/10'
+            )}
           >
-            {items.map((item, itemIndex) => (
+            {activeItems.map((item, itemIndex) => (
               <Draggable key={item.id} draggableId={item.id} index={itemIndex}>
                 {(provided, snapshot) => (
                   <div
@@ -139,6 +156,52 @@ function KanbanColumn({ category, items, index }: KanbanColumnProps) {
           </div>
         )}
       </Droppable>
+
+      {/* Completed section - collapsible */}
+      {completedItems.length > 0 && (
+        <div className="border-t border-theme-border-primary">
+          <button
+            onClick={() => setCompletedExpanded(!completedExpanded)}
+            className="w-full flex items-center justify-between px-3 py-2 text-left hover:bg-theme-bg-hover transition-all-fast"
+          >
+            <div className="flex items-center gap-2">
+              <svg
+                className={clsx(
+                  'h-3 w-3 text-theme-text-muted transition-transform',
+                  completedExpanded && 'rotate-90'
+                )}
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+              <span className="text-xs font-medium text-theme-text-muted">
+                Completed
+              </span>
+              <span className="rounded-full bg-theme-bg-hover px-1.5 py-0.5 text-[10px] font-medium text-theme-text-muted">
+                {completedItems.length}
+              </span>
+            </div>
+            <svg
+              className="h-3 w-3 text-theme-accent-success"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+          </button>
+
+          {completedExpanded && (
+            <div className="space-y-2 p-2 pt-0 max-h-48 overflow-y-auto">
+              {completedItems.map((item) => (
+                <KanbanCard key={item.id} item={item} isDragging={false} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

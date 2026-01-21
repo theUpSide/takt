@@ -10,6 +10,7 @@ const viewOptions: { id: ViewType; label: string }[] = [
   { id: 'kanban', label: 'Kanban' },
   { id: 'list', label: 'List' },
   { id: 'gantt', label: 'Gantt' },
+  { id: 'planner', label: 'Planner' },
 ]
 
 const themeIcons: Record<ThemeName, JSX.Element> = {

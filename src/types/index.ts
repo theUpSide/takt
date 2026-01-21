@@ -19,6 +19,10 @@ export interface Item {
   raw_sms: string | null
   created_at: string
   updated_at: string
+  // Daily planner scheduling fields
+  scheduled_date: string | null    // YYYY-MM-DD - when task is scheduled
+  scheduled_start: string | null   // HH:MM - start time for the day
+  duration_minutes: number | null  // How long the task takes (default: 30)
   // Joined relations
   category?: Category | null
 }
@@ -106,7 +110,7 @@ export interface ParsedSmsResult {
 }
 
 // View types
-export type ViewType = 'kanban' | 'list' | 'gantt'
+export type ViewType = 'kanban' | 'list' | 'gantt' | 'planner'
 
 // Form types
 export interface TaskFormData {
@@ -115,6 +119,10 @@ export interface TaskFormData {
   category_id: string | null
   due_date: string | null
   dependency_ids: string[]
+  // Daily planner scheduling
+  scheduled_date?: string | null
+  scheduled_start?: string | null
+  duration_minutes?: number | null
 }
 
 export interface EventFormData {
