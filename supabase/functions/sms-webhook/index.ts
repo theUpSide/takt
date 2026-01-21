@@ -10,34 +10,36 @@ const corsHeaders = {
 // SMS parsing prompt for Claude
 const SMS_SYSTEM_PROMPT = `You are an AI assistant that parses SMS messages into structured task/event data for a task management app called Takt.
 
-Analyze the incoming SMS and extract:
+The message may contain ONE or MULTIPLE tasks/events. Extract ALL of them.
+
+For each item, determine:
 1. Whether it's a task (to-do item) or event (has specific start/end time)
 2. The title/subject
 3. Any description details
 4. Due date for tasks OR start/end time for events
 5. Category hint (Work, Personal, Home, Health, etc.)
-6. Any people mentioned
 
-Response format (JSON only, no markdown):
+Response format (JSON only, no markdown) - ALWAYS return an array:
 {
-  "type": "task" | "event",
-  "title": "concise title",
-  "description": "additional details or null",
-  "due_date": "YYYY-MM-DD" (for tasks, or null),
-  "start_time": "YYYY-MM-DDTHH:MM:SS" (for events, or null),
-  "end_time": "YYYY-MM-DDTHH:MM:SS" (for events, or null),
-  "category_hint": "suggested category name or null",
-  "people_mentioned": ["name1", "name2"],
-  "confidence": 0.0-1.0
+  "items": [
+    {
+      "type": "task" | "event",
+      "title": "concise title",
+      "description": "additional details or null",
+      "due_date": "YYYY-MM-DD" (for tasks, or null),
+      "start_time": "YYYY-MM-DDTHH:MM:SS" (for events, or null),
+      "end_time": "YYYY-MM-DDTHH:MM:SS" (for events, or null),
+      "category_hint": "suggested category name or null"
+    }
+  ]
 }
 
 Examples:
-- "remind me to call mom tomorrow" → task, title "Call mom", due_date tomorrow
-- "meeting with John Friday 2pm" → event, title "Meeting with John", start_time Friday 2pm
-- "buy groceries" → task, title "Buy groceries", category_hint "Home"
-- "dentist tuesday 10-11am" → event, title "Dentist appointment", start/end times
+- "remind me to call mom tomorrow" → 1 task
+- "haircut tomorrow at 11am, pickup dry cleaning friday 7pm" → 2 events
+- "I need to: 1) buy groceries 2) call dentist 3) meeting with John tuesday 2pm" → 2 tasks + 1 event
 
-Always respond with valid JSON only.`
+Always respond with valid JSON only. Always use the "items" array format even for single items.`
 
 serve(async (req) => {
   // Handle CORS preflight
@@ -102,63 +104,71 @@ serve(async (req) => {
     const parsed = JSON.parse(content.text)
     console.log('Parsed result:', parsed)
 
-    // Find matching category
-    let categoryId = null
-    if (parsed.category_hint && categories) {
-      const matchedCategory = categories.find(
-        c => c.name.toLowerCase() === parsed.category_hint.toLowerCase()
-      )
-      categoryId = matchedCategory?.id || null
+    // Handle both old single-item format and new multi-item format
+    const items = parsed.items || [parsed]
+    const createdItems: Array<{ type: string; title: string }> = []
+
+    for (const item of items) {
+      // Find matching category
+      let categoryId = null
+      if (item.category_hint && categories) {
+        const matchedCategory = categories.find(
+          (c: { id: string; name: string }) => c.name.toLowerCase() === item.category_hint.toLowerCase()
+        )
+        categoryId = matchedCategory?.id || null
+      }
+
+      // Create the item in the database
+      const itemData: Record<string, unknown> = {
+        type: item.type,
+        title: item.title,
+        description: item.description,
+        category_id: categoryId,
+        source: 'sms',
+        raw_sms: body,
+      }
+
+      if (item.type === 'task' && item.due_date) {
+        itemData.due_date = item.due_date
+      } else if (item.type === 'event') {
+        itemData.start_time = item.start_time
+        itemData.end_time = item.end_time
+      }
+
+      const { data: newItem, error: itemError } = await supabase
+        .from('items')
+        .insert(itemData)
+        .select()
+        .single()
+
+      if (itemError) {
+        console.error('Error creating item:', itemError)
+        continue // Skip this item but try others
+      }
+
+      console.log('Created item:', newItem)
+      createdItems.push({ type: item.type, title: item.title })
     }
 
-    // Create the item in the database
-    const itemData: Record<string, unknown> = {
-      type: parsed.type,
-      title: parsed.title,
-      description: parsed.description,
-      category_id: categoryId,
-      source: 'sms',
-      raw_sms: body,
-    }
-
-    if (parsed.type === 'task' && parsed.due_date) {
-      itemData.due_date = parsed.due_date
-    } else if (parsed.type === 'event') {
-      itemData.start_time = parsed.start_time
-      itemData.end_time = parsed.end_time
-    }
-
-    const { data: newItem, error: itemError } = await supabase
-      .from('items')
-      .insert(itemData)
-      .select()
-      .single()
-
-    if (itemError) {
-      console.error('Error creating item:', itemError)
-      throw itemError
-    }
-
-    console.log('Created item:', newItem)
-
-    // Log the SMS
+    // Log the SMS with all parsed items
     await supabase.from('sms_log').insert({
       twilio_sid: messageSid,
       from_number: from,
       body: body,
       parsed_result: parsed,
-      item_id: newItem.id,
+      item_id: null, // Multiple items, so we don't link to a single one
       processed_at: new Date().toISOString(),
     })
 
     // Build confirmation message
-    let confirmationMsg = `Got it! Created ${parsed.type}: "${parsed.title}"`
-    if (parsed.type === 'task' && parsed.due_date) {
-      const dueDate = new Date(parsed.due_date)
-      confirmationMsg += ` (due ${dueDate.toLocaleDateString()})`
-    } else if (parsed.type === 'event' && parsed.start_time) {
-      const startTime = new Date(parsed.start_time)
-      confirmationMsg += ` (${startTime.toLocaleString()})`
+    let confirmationMsg: string
+    if (createdItems.length === 0) {
+      confirmationMsg = "Sorry, I couldn't create any items from that message."
+    } else if (createdItems.length === 1) {
+      confirmationMsg = `Got it! Created ${createdItems[0].type}: "${createdItems[0].title}"`
+    } else {
+      confirmationMsg = `Got it! Created ${createdItems.length} items:\n` +
+        createdItems.map(i => `• ${i.title}`).join('\n')
     }
 
     // Return TwiML response
