@@ -3,22 +3,58 @@ import { supabase } from '@/lib/supabase'
 import { formatDateTime } from '@/lib/dateUtils'
 import clsx from 'clsx'
 
+interface ParsedItem {
+  type: string
+  title: string
+  due_date?: string
+  start_time?: string
+  end_time?: string
+  category_hint?: string
+  description?: string
+}
+
 interface SMSLogEntry {
   id: string
   twilio_sid: string
   from_number: string
   body: string
   parsed_result: {
-    type: string
-    title: string
+    // New multi-item format
+    items?: ParsedItem[]
+    // Legacy single-item format
+    type?: string
+    title?: string
     due_date?: string
     start_time?: string
     category_hint?: string
-    confidence?: number
   } | null
   item_id: string | null
+  items_created?: number
   error: string | null
   processed_at: string
+}
+
+// Helper to normalize parsed_result to always return an array of items
+function getItemsFromParsedResult(parsed: SMSLogEntry['parsed_result']): ParsedItem[] {
+  if (!parsed) return []
+
+  // New format with items array
+  if (parsed.items && Array.isArray(parsed.items)) {
+    return parsed.items
+  }
+
+  // Legacy single-item format
+  if (parsed.type && parsed.title) {
+    return [{
+      type: parsed.type,
+      title: parsed.title,
+      due_date: parsed.due_date,
+      start_time: parsed.start_time,
+      category_hint: parsed.category_hint,
+    }]
+  }
+
+  return []
 }
 
 export default function SMSLogViewer() {
@@ -116,90 +152,120 @@ export default function SMSLogViewer() {
         </div>
       ) : (
         <div className="space-y-3">
-          {logs.map((log) => (
-            <div
-              key={log.id}
-              className={clsx(
-                'rounded-lg border p-4 transition-all-fast',
-                log.error
-                  ? 'border-theme-accent-danger/30 bg-theme-accent-danger/5'
-                  : 'border-theme-border-primary hover:bg-theme-bg-hover'
-              )}
-            >
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex-1 min-w-0">
-                  {/* Message body */}
-                  <p className="text-theme-text-primary font-medium truncate">
-                    "{log.body}"
-                  </p>
+          {logs.map((log) => {
+            const parsedItems = getItemsFromParsedResult(log.parsed_result)
+            const hasItems = parsedItems.length > 0
+            const itemsCreated = log.items_created ?? (log.item_id ? 1 : 0)
 
-                  {/* Parsed result */}
-                  {log.parsed_result && (
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                      <span className={clsx(
-                        'rounded-md px-2 py-0.5 text-xs font-medium',
-                        log.parsed_result.type === 'task'
-                          ? 'bg-theme-accent-primary/20 text-theme-accent-primary'
-                          : 'bg-theme-accent-secondary/20 text-theme-accent-secondary'
-                      )}>
-                        {log.parsed_result.type}
-                      </span>
-                      <span className="text-sm text-theme-text-secondary">
-                        → {log.parsed_result.title}
-                      </span>
-                      {log.parsed_result.due_date && (
-                        <span className="text-xs text-theme-text-muted">
-                          (due: {log.parsed_result.due_date})
-                        </span>
-                      )}
-                      {log.parsed_result.category_hint && (
-                        <span className="rounded-md bg-theme-bg-tertiary px-2 py-0.5 text-xs text-theme-text-muted">
-                          {log.parsed_result.category_hint}
-                        </span>
+            return (
+              <div
+                key={log.id}
+                className={clsx(
+                  'rounded-lg border p-4 transition-all-fast',
+                  log.error
+                    ? 'border-theme-accent-danger/30 bg-theme-accent-danger/5'
+                    : 'border-theme-border-primary hover:bg-theme-bg-hover'
+                )}
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex-1 min-w-0">
+                    {/* Message body */}
+                    <p className="text-theme-text-primary font-medium">
+                      "{log.body}"
+                    </p>
+
+                    {/* Parsed items */}
+                    {hasItems && (
+                      <div className="mt-3 space-y-2">
+                        {parsedItems.map((item, idx) => (
+                          <div key={idx} className="flex flex-wrap items-center gap-2">
+                            <span className={clsx(
+                              'rounded-md px-2 py-0.5 text-xs font-medium',
+                              item.type === 'task'
+                                ? 'bg-theme-accent-primary/20 text-theme-accent-primary'
+                                : 'bg-theme-accent-secondary/20 text-theme-accent-secondary'
+                            )}>
+                              {item.type}
+                            </span>
+                            <span className="text-sm text-theme-text-secondary">
+                              → {item.title}
+                            </span>
+                            {item.due_date && (
+                              <span className="text-xs text-theme-text-muted">
+                                (due: {item.due_date})
+                              </span>
+                            )}
+                            {item.start_time && (
+                              <span className="text-xs text-theme-text-muted">
+                                (at: {new Date(item.start_time).toLocaleString()})
+                              </span>
+                            )}
+                            {item.category_hint && (
+                              <span className="rounded-md bg-theme-bg-tertiary px-2 py-0.5 text-xs text-theme-text-muted">
+                                {item.category_hint}
+                              </span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* No parsed items warning */}
+                    {!hasItems && !log.error && (
+                      <p className="mt-2 text-sm text-theme-text-muted italic">
+                        No items parsed from this message
+                      </p>
+                    )}
+
+                    {/* Error message */}
+                    {log.error && (
+                      <p className="mt-2 text-sm text-theme-accent-danger">
+                        Error: {log.error}
+                      </p>
+                    )}
+
+                    {/* Meta info */}
+                    <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-theme-text-muted">
+                      <span>From: {log.from_number}</span>
+                      <span>•</span>
+                      <span>{formatDateTime(log.processed_at)}</span>
+                      {itemsCreated > 0 && (
+                        <>
+                          <span>•</span>
+                          <span className="text-theme-accent-success">
+                            {itemsCreated === 1 ? 'Item created' : `${itemsCreated} items created`}
+                          </span>
+                        </>
                       )}
                     </div>
-                  )}
+                  </div>
 
-                  {/* Error message */}
-                  {log.error && (
-                    <p className="mt-2 text-sm text-theme-accent-danger">
-                      Error: {log.error}
-                    </p>
-                  )}
-
-                  {/* Meta info */}
-                  <div className="mt-2 flex items-center gap-3 text-xs text-theme-text-muted">
-                    <span>From: {log.from_number}</span>
-                    <span>•</span>
-                    <span>{formatDateTime(log.processed_at)}</span>
-                    {log.item_id && (
-                      <>
-                        <span>•</span>
-                        <span className="text-theme-accent-success">Item created</span>
-                      </>
+                  {/* Status indicator */}
+                  <div className="shrink-0">
+                    {log.error ? (
+                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-theme-accent-danger/20">
+                        <svg className="h-4 w-4 text-theme-accent-danger" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </div>
+                    ) : itemsCreated > 0 ? (
+                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-theme-accent-success/20">
+                        <svg className="h-4 w-4 text-theme-accent-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                      </div>
+                    ) : (
+                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-theme-accent-warning/20">
+                        <svg className="h-4 w-4 text-theme-accent-warning" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                      </div>
                     )}
                   </div>
                 </div>
-
-                {/* Status indicator */}
-                <div className="shrink-0">
-                  {log.error ? (
-                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-theme-accent-danger/20">
-                      <svg className="h-4 w-4 text-theme-accent-danger" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </div>
-                  ) : (
-                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-theme-accent-success/20">
-                      <svg className="h-4 w-4 text-theme-accent-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                      </svg>
-                    </div>
-                  )}
-                </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
 
