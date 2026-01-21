@@ -48,7 +48,14 @@ export default function Header() {
   }
 
   return (
-    <header className="flex h-14 items-center justify-between border-b border-theme-border-primary bg-theme-bg-primary px-4 transition-theme" style={{ background: 'var(--header-gradient)' }}>
+    <header className="relative flex h-14 items-center justify-between border-b border-theme-border-primary bg-theme-bg-primary px-4 transition-theme" style={{ background: 'var(--header-gradient)' }}>
+      {/* Gradient accent bar */}
+      <div
+        className="absolute bottom-0 left-0 right-0 h-[2px]"
+        style={{
+          background: 'linear-gradient(90deg, var(--accent-primary), var(--accent-secondary), var(--accent-success))',
+        }}
+      />
       <div className="flex items-center gap-4">
         <button
           onClick={toggleSidebar}

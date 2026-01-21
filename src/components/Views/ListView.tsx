@@ -12,6 +12,7 @@ import { useItemStore } from '@/stores/itemStore'
 import { useViewStore } from '@/stores/viewStore'
 import { getRelativeDate, isOverdue } from '@/lib/dateUtils'
 import CategoryBadge from '@/components/Common/CategoryBadge'
+import Checkbox from '@/components/Common/Checkbox'
 import type { Item } from '@/types'
 import clsx from 'clsx'
 
@@ -32,28 +33,10 @@ export default function ListView() {
         header: '',
         cell: ({ row }) =>
           row.original.type === 'task' ? (
-            <button
-              onClick={(e) => {
-                e.stopPropagation()
-                toggleComplete(row.original.id)
-              }}
-              className={clsx(
-                'h-5 w-5 rounded-md border-2 transition-all-fast flex items-center justify-center',
-                row.original.completed
-                  ? 'border-theme-accent-success bg-theme-accent-success shadow-glow-success'
-                  : 'border-theme-border-secondary hover:border-theme-accent-primary hover:shadow-glow-primary'
-              )}
-            >
-              {row.original.completed && (
-                <svg className="h-3 w-3 text-white" fill="currentColor" viewBox="0 0 20 20">
-                  <path
-                    fillRule="evenodd"
-                    d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                    clipRule="evenodd"
-                  />
-                </svg>
-              )}
-            </button>
+            <Checkbox
+              checked={row.original.completed}
+              onChange={() => toggleComplete(row.original.id)}
+            />
           ) : null,
         size: 40,
       }),

@@ -2,6 +2,7 @@ import { useItemStore } from '@/stores/itemStore'
 import { useViewStore } from '@/stores/viewStore'
 import { getRelativeDate, isOverdue } from '@/lib/dateUtils'
 import { getDirectPredecessors } from '@/lib/dependencyUtils'
+import Checkbox from '@/components/Common/Checkbox'
 import type { Item } from '@/types'
 import clsx from 'clsx'
 
@@ -17,13 +18,6 @@ export default function KanbanCard({ item, isDragging }: KanbanCardProps) {
   const predecessors = getDirectPredecessors(dependencies, item.id)
   const dueDate = item.due_date || item.start_time
   const overdue = item.due_date ? isOverdue(item.due_date) : false
-
-  const handleCheckboxClick = (e: React.MouseEvent) => {
-    e.stopPropagation()
-    if (item.type === 'task') {
-      toggleComplete(item.id)
-    }
-  }
 
   const handleCardClick = () => {
     openViewItemModal(item.id)
@@ -42,25 +36,11 @@ export default function KanbanCard({ item, isDragging }: KanbanCardProps) {
       <div className="flex items-start gap-3">
         {/* Checkbox for tasks */}
         {item.type === 'task' && (
-          <button
-            onClick={handleCheckboxClick}
-            className={clsx(
-              'mt-0.5 h-5 w-5 shrink-0 rounded-md border-2 transition-all-fast flex items-center justify-center',
-              item.completed
-                ? 'border-theme-accent-success bg-theme-accent-success shadow-glow-success'
-                : 'border-theme-border-secondary hover:border-theme-accent-primary hover:shadow-glow-primary'
-            )}
-          >
-            {item.completed && (
-              <svg className="h-3 w-3 text-white" fill="currentColor" viewBox="0 0 20 20">
-                <path
-                  fillRule="evenodd"
-                  d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                  clipRule="evenodd"
-                />
-              </svg>
-            )}
-          </button>
+          <Checkbox
+            checked={item.completed}
+            onChange={() => toggleComplete(item.id)}
+            className="mt-0.5"
+          />
         )}
 
         {/* Title */}

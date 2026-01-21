@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { supabase } from '@/lib/supabase'
 import type { Item, ItemFilters, Dependency } from '@/types'
 import { isOverdue, parseISO } from '@/lib/dateUtils'
+import { useToastStore } from './toastStore'
 
 interface ItemState {
   items: Item[]
@@ -62,6 +63,7 @@ export const useItemStore = create<ItemState>((set, get) => ({
   },
 
   createItem: async (data) => {
+    const toast = useToastStore.getState()
     const { data: newItem, error } = await supabase
       .from('items')
       .insert({
@@ -79,14 +81,17 @@ export const useItemStore = create<ItemState>((set, get) => ({
 
     if (error) {
       set({ error: error.message })
+      toast.error(`Failed to create ${data.type ?? 'task'}`)
       return null
     }
 
     set({ items: [newItem, ...get().items] })
+    toast.success(`${data.type === 'event' ? 'Event' : 'Task'} created`)
     return newItem
   },
 
   updateItem: async (id, data) => {
+    const toast = useToastStore.getState()
     const { data: updated, error } = await supabase
       .from('items')
       .update({
@@ -99,6 +104,7 @@ export const useItemStore = create<ItemState>((set, get) => ({
 
     if (error) {
       set({ error: error.message })
+      toast.error('Failed to update item')
       return null
     }
 
@@ -109,10 +115,13 @@ export const useItemStore = create<ItemState>((set, get) => ({
   },
 
   deleteItem: async (id) => {
+    const toast = useToastStore.getState()
+    const item = get().items.find((i) => i.id === id)
     const { error } = await supabase.from('items').delete().eq('id', id)
 
     if (error) {
       set({ error: error.message })
+      toast.error('Failed to delete item')
       return false
     }
 
@@ -122,18 +131,24 @@ export const useItemStore = create<ItemState>((set, get) => ({
         (d) => d.predecessor_id !== id && d.successor_id !== id
       ),
     })
+    toast.success(`${item?.type === 'event' ? 'Event' : 'Task'} deleted`)
     return true
   },
 
   toggleComplete: async (id) => {
+    const toast = useToastStore.getState()
     const item = get().items.find((i) => i.id === id)
     if (!item) return
 
     const completed = !item.completed
-    await get().updateItem(id, {
+    const result = await get().updateItem(id, {
       completed,
       completed_at: completed ? new Date().toISOString() : null,
     })
+
+    if (result) {
+      toast.success(completed ? 'Task completed!' : 'Task reopened')
+    }
   },
 
   addDependency: async (predecessorId, successorId) => {
