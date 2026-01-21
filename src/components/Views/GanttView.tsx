@@ -10,12 +10,12 @@ let Gantt: typeof import('frappe-gantt').default | null = null
 export default function GanttView() {
   const containerRef = useRef<HTMLDivElement>(null)
   const ganttRef = useRef<unknown>(null)
-  const { dependencies, updateItem } = useItemStore()
+  const { items, dependencies, updateItem } = useItemStore()
   const { filters, openViewItemModal } = useViewStore()
   const getFilteredItems = useItemStore((state) => state.getFilteredItems)
   const theme = useThemeStore((state) => state.theme)
 
-  const filteredItems = useMemo(() => getFilteredItems(filters), [getFilteredItems, filters])
+  const filteredItems = useMemo(() => getFilteredItems(filters), [getFilteredItems, filters, items])
 
   // Filter to items that have dates
   const ganttItems = useMemo(() => {

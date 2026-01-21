@@ -62,3 +62,7 @@ enable_confirmations = false
 # Allow/disallow new user signups via SMS to your project.
 enable_signup = false
 enable_confirmations = false
+
+[functions.sms-webhook]
+# Disable JWT verification for the SMS webhook since Twilio sends unauthenticated requests
+verify_jwt = false
