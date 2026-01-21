@@ -7,45 +7,93 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-// SMS parsing prompt for Claude
-const SMS_SYSTEM_PROMPT = `You are an AI assistant that parses SMS messages into structured task/event data for a task management app called Takt.
+// Comprehensive SMS parsing prompt for Claude
+const SMS_SYSTEM_PROMPT = `You are an expert assistant that parses natural language SMS messages into structured task and event data for a task management app called Takt.
 
-The message may contain ONE or MULTIPLE tasks/events. Extract ALL of them.
+## YOUR ROLE
+Parse the user's SMS message and extract ALL tasks and/or events mentioned. Be thorough - users often mention multiple items in a single message.
 
-For each item, determine:
-1. Whether it's a task (to-do item) or event (has specific start/end time)
-2. The title/subject
-3. Any description details
-4. Due date for tasks OR start/end time for events
-5. Category hint (Work, Personal, Home, Health, etc.)
+## UNDERSTANDING TASKS vs EVENTS
 
-Response format (JSON only, no markdown) - ALWAYS return an array:
+**EVENTS** - Have a specific scheduled time:
+- Keywords: "at", "from...to", "meeting", "appointment", "call with", "lunch with", "dinner at"
+- Examples: "haircut at 3pm", "meeting with John at 2", "dentist appointment tomorrow 10am"
+- Events have start_time (required) and optionally end_time
+
+**TASKS** - To-do items without a specific time:
+- Keywords: "need to", "have to", "remind me to", "don't forget", "pick up", "buy", "call", "email"
+- Examples: "buy groceries", "call mom", "finish report by Friday"
+- Tasks have due_date (optional) but NO specific time
+
+## PARSING RULES
+
+1. **Multiple items**: Look for conjunctions (and, also, plus), commas, numbered lists, or separate sentences
+2. **Relative dates**: Convert "today", "tomorrow", "next Monday", "this Friday" to actual YYYY-MM-DD dates
+3. **Relative times**: Convert "at 3", "at 3pm", "3 o'clock" to full ISO datetime
+4. **Implied items**: "pickup X on the way home" = event (implies going somewhere at a time)
+5. **Category hints**: Infer from context - "dentist" = Health, "meeting" = Work, "groceries" = Home
+6. **Ambiguous times**: If someone says "tomorrow at 11", that's 11:00 AM unless they say PM
+7. **Duration**: Events typically last 30-60 min unless specified ("1 hour meeting")
+
+## TITLE FORMATTING
+- Keep titles concise (2-6 words)
+- Use action verbs: "Get haircut", "Pick up dry cleaning", "Call dentist"
+- Don't include dates/times in the title - those go in the date fields
+
+## RESPONSE FORMAT
+Return ONLY valid JSON, no markdown, no explanation:
+
 {
   "items": [
     {
-      "type": "task" | "event",
-      "title": "concise title",
-      "description": "additional details or null",
-      "due_date": "YYYY-MM-DD" (for tasks, or null),
-      "start_time": "YYYY-MM-DDTHH:MM:SS" (for events, or null),
-      "end_time": "YYYY-MM-DDTHH:MM:SS" (for events, or null),
-      "category_hint": "suggested category name or null"
+      "type": "task" or "event",
+      "title": "Concise action title",
+      "description": "Additional context or null",
+      "due_date": "YYYY-MM-DD or null (tasks only)",
+      "start_time": "YYYY-MM-DDTHH:MM:SS or null (events only)",
+      "end_time": "YYYY-MM-DDTHH:MM:SS or null (events, optional)",
+      "category_hint": "Work/Personal/Home/Health/Finance or null"
     }
   ]
 }
 
-Examples:
-- "remind me to call mom tomorrow" → 1 task with due_date
-- "haircut tomorrow at 11am" → 1 event with start_time
-- "pickup dry cleaning friday 7pm" → 1 event with start_time
-- "I need to: 1) buy groceries 2) call dentist 3) meeting with John tuesday 2pm" → 2 tasks + 1 event
-- "Can you please add a task to get a haircut tomorrow at 11 AM, pick up the dry cleaning on Friday at 7 PM, and pick up a home furnace filter today on the way home" → 3 events
+## EXAMPLES
 
-IMPORTANT:
-- If someone says "at [time]", it's an EVENT with start_time, not a task
-- If someone says "by [date]" or just a day with no time, it's a TASK with due_date
-- Always respond with valid JSON only, no extra text
-- Always use the "items" array format even for single items`
+Input: "remind me to call mom tomorrow"
+Output: {"items":[{"type":"task","title":"Call mom","description":null,"due_date":"[tomorrow's date]","start_time":null,"end_time":null,"category_hint":"Personal"}]}
+
+Input: "haircut tomorrow at 11am, pickup dry cleaning friday 7pm"
+Output: {"items":[
+  {"type":"event","title":"Get haircut","description":null,"due_date":null,"start_time":"[tomorrow]T11:00:00","end_time":"[tomorrow]T11:30:00","category_hint":"Personal"},
+  {"type":"event","title":"Pick up dry cleaning","description":null,"due_date":null,"start_time":"[friday]T19:00:00","end_time":"[friday]T19:15:00","category_hint":"Home"}
+]}
+
+Input: "I have a few things: 1) buy groceries 2) call dentist to schedule 3) team meeting tuesday 2pm"
+Output: {"items":[
+  {"type":"task","title":"Buy groceries","description":null,"due_date":null,"start_time":null,"end_time":null,"category_hint":"Home"},
+  {"type":"task","title":"Call dentist to schedule","description":null,"due_date":null,"start_time":null,"end_time":null,"category_hint":"Health"},
+  {"type":"event","title":"Team meeting","description":null,"due_date":null,"start_time":"[tuesday]T14:00:00","end_time":"[tuesday]T15:00:00","category_hint":"Work"}
+]}
+
+Input: "Can you add a task to get a haircut tomorrow at 11 AM, pick up the dry cleaning on Friday at 7 PM, and pick up a home furnace filter today on the way home"
+Output: {"items":[
+  {"type":"event","title":"Get haircut","description":null,"due_date":null,"start_time":"[tomorrow]T11:00:00","end_time":"[tomorrow]T11:30:00","category_hint":"Personal"},
+  {"type":"event","title":"Pick up dry cleaning","description":null,"due_date":null,"start_time":"[friday]T19:00:00","end_time":"[friday]T19:15:00","category_hint":"Home"},
+  {"type":"task","title":"Pick up furnace filter","description":"On the way home","due_date":"[today]","start_time":null,"end_time":null,"category_hint":"Home"}
+]}
+
+Input: "meeting with sarah at 3, also need to review the Q4 budget by end of week"
+Output: {"items":[
+  {"type":"event","title":"Meeting with Sarah","description":null,"due_date":null,"start_time":"[today]T15:00:00","end_time":"[today]T16:00:00","category_hint":"Work"},
+  {"type":"task","title":"Review Q4 budget","description":null,"due_date":"[friday]","start_time":null,"end_time":null,"category_hint":"Work"}
+]}
+
+## CRITICAL RULES
+- ALWAYS return the "items" array format, even for single items
+- ALWAYS use actual dates calculated from the current date provided
+- NEVER include markdown formatting or code blocks
+- If unsure whether task or event, prefer TASK unless there's a specific time
+- Extract EVERY item mentioned, don't skip any`
 
 // Helper to log to SMS log table
 async function logSMS(
@@ -74,6 +122,37 @@ async function logSMS(
   }
 }
 
+// Helper to get timezone-aware date string
+function getLocalDateInfo() {
+  const now = new Date()
+
+  // Get dates for context
+  const today = new Date(now)
+  const tomorrow = new Date(now)
+  tomorrow.setDate(tomorrow.getDate() + 1)
+
+  const formatDate = (d: Date) => d.toISOString().split('T')[0]
+  const formatDay = (d: Date) => d.toLocaleDateString('en-US', { weekday: 'long' })
+
+  // Calculate this week's days
+  const daysOfWeek: Record<string, string> = {}
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(now)
+    d.setDate(d.getDate() + i)
+    const dayName = formatDay(d).toLowerCase()
+    daysOfWeek[dayName] = formatDate(d)
+  }
+
+  return {
+    today: formatDate(today),
+    todayName: formatDay(today),
+    tomorrow: formatDate(tomorrow),
+    tomorrowName: formatDay(tomorrow),
+    currentTime: now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+    daysOfWeek,
+  }
+}
+
 serve(async (req) => {
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
@@ -95,7 +174,7 @@ serve(async (req) => {
       console.error('Missing Supabase configuration')
       return new Response(
         '<?xml version="1.0" encoding="UTF-8"?><Response><Message>Server configuration error</Message></Response>',
-        { headers: { ...corsHeaders, 'Content-Type': 'text/xml' } }
+        { headers: { ...corsHeaders, 'Content-Type': 'text/xml' }, status: 200 }
       )
     }
 
@@ -103,7 +182,7 @@ serve(async (req) => {
       console.error('Missing Anthropic API key')
       return new Response(
         '<?xml version="1.0" encoding="UTF-8"?><Response><Message>Server configuration error</Message></Response>',
-        { headers: { ...corsHeaders, 'Content-Type': 'text/xml' } }
+        { headers: { ...corsHeaders, 'Content-Type': 'text/xml' }, status: 200 }
       )
     }
 
@@ -118,7 +197,7 @@ serve(async (req) => {
       console.error('Failed to parse form data:', parseError)
       return new Response(
         '<?xml version="1.0" encoding="UTF-8"?><Response><Message>Invalid request format</Message></Response>',
-        { headers: { ...corsHeaders, 'Content-Type': 'text/xml' } }
+        { headers: { ...corsHeaders, 'Content-Type': 'text/xml' }, status: 200 }
       )
     }
 
@@ -137,20 +216,24 @@ serve(async (req) => {
       })
       return new Response(
         '<?xml version="1.0" encoding="UTF-8"?><Response><Message>Error: Missing message data</Message></Response>',
-        { headers: { ...corsHeaders, 'Content-Type': 'text/xml' } }
+        { headers: { ...corsHeaders, 'Content-Type': 'text/xml' }, status: 200 }
       )
     }
 
     // Initialize Anthropic client
     const anthropic = new Anthropic({ apiKey: anthropicApiKey })
 
-    // Get current date context for Claude (use local date calculation)
-    const now = new Date()
-    const localDate = new Date(now.getTime() - (now.getTimezoneOffset() * 60000))
-    const dateStr = localDate.toISOString().split('T')[0]
-    const dayName = now.toLocaleDateString('en-US', { weekday: 'long' })
-    const fullDate = now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
-    const dateContext = `Current date: ${dateStr} (${dayName}). Full date: ${fullDate}. Current time: ${now.toLocaleTimeString()}.`
+    // Get detailed date context for Claude
+    const dateInfo = getLocalDateInfo()
+    const dateContext = `
+CURRENT DATE/TIME CONTEXT:
+- Today: ${dateInfo.today} (${dateInfo.todayName})
+- Tomorrow: ${dateInfo.tomorrow} (${dateInfo.tomorrowName})
+- Current time: ${dateInfo.currentTime}
+- This week's dates:
+${Object.entries(dateInfo.daysOfWeek).map(([day, date]) => `  - ${day}: ${date}`).join('\n')}
+
+Use these EXACT dates when the user mentions relative days.`
 
     // Get existing categories for context
     const { data: categories } = await supabase
@@ -160,16 +243,18 @@ serve(async (req) => {
 
     // Parse SMS with Claude
     console.log('Calling Claude to parse SMS...')
+    console.log('Date context:', dateContext)
+
     let response
     try {
       response = await anthropic.messages.create({
         model: 'claude-sonnet-4-20250514',
-        max_tokens: 1024,
+        max_tokens: 2048,
         system: SMS_SYSTEM_PROMPT,
         messages: [
           {
             role: 'user',
-            content: `${dateContext}\n\nAvailable categories: ${categoryList}\n\nSMS message: "${body}"`,
+            content: `${dateContext}\n\nAvailable categories in the app: ${categoryList}\n\nParse this SMS message and extract all tasks/events:\n"${body}"`,
           },
         ],
       })
@@ -183,7 +268,7 @@ serve(async (req) => {
       })
       return new Response(
         '<?xml version="1.0" encoding="UTF-8"?><Response><Message>Sorry, I had trouble understanding that. Please try again.</Message></Response>',
-        { headers: { ...corsHeaders, 'Content-Type': 'text/xml' } }
+        { headers: { ...corsHeaders, 'Content-Type': 'text/xml' }, status: 200 }
       )
     }
 
@@ -198,7 +283,7 @@ serve(async (req) => {
       })
       return new Response(
         '<?xml version="1.0" encoding="UTF-8"?><Response><Message>Sorry, something went wrong. Please try again.</Message></Response>',
-        { headers: { ...corsHeaders, 'Content-Type': 'text/xml' } }
+        { headers: { ...corsHeaders, 'Content-Type': 'text/xml' }, status: 200 }
       )
     }
 
@@ -229,7 +314,7 @@ serve(async (req) => {
       })
       return new Response(
         '<?xml version="1.0" encoding="UTF-8"?><Response><Message>Sorry, I had trouble parsing that. Please try a simpler message.</Message></Response>',
-        { headers: { ...corsHeaders, 'Content-Type': 'text/xml' } }
+        { headers: { ...corsHeaders, 'Content-Type': 'text/xml' }, status: 200 }
       )
     }
 
@@ -249,7 +334,7 @@ serve(async (req) => {
       })
       return new Response(
         '<?xml version="1.0" encoding="UTF-8"?><Response><Message>Sorry, I couldn\'t find any tasks or events in your message.</Message></Response>',
-        { headers: { ...corsHeaders, 'Content-Type': 'text/xml' } }
+        { headers: { ...corsHeaders, 'Content-Type': 'text/xml' }, status: 200 }
       )
     }
 
@@ -323,24 +408,26 @@ serve(async (req) => {
     if (createdItems.length === 0) {
       confirmationMsg = "Sorry, I couldn't create any items from that message."
       if (failedItems.length > 0) {
-        confirmationMsg += ` Errors: ${failedItems[0]}`
+        confirmationMsg += ` Error: ${failedItems[0]}`
       }
     } else if (createdItems.length === 1) {
       const item = createdItems[0]
       confirmationMsg = `Got it! Created ${item.type}: "${item.title}"`
     } else {
-      confirmationMsg = `Got it! Created ${createdItems.length} items:\n` +
-        createdItems.map(i => `• ${i.title}`).join('\n')
+      confirmationMsg = `Got it! Created ${createdItems.length} items: ` +
+        createdItems.map(i => i.title).join(', ')
     }
 
-    // Return TwiML response
-    const twiml = `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Message>${escapeXml(confirmationMsg)}</Message>
-</Response>`
+    console.log('Sending TwiML response:', confirmationMsg)
+
+    // Return TwiML response - Twilio requires exactly this format
+    const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escapeXml(confirmationMsg)}</Message></Response>`
 
     return new Response(twiml, {
-      headers: { ...corsHeaders, 'Content-Type': 'text/xml' },
+      status: 200,
+      headers: {
+        'Content-Type': 'text/xml; charset=utf-8',
+      },
     })
 
   } catch (error) {
@@ -362,13 +449,13 @@ serve(async (req) => {
       console.error('Failed to log error:', logError)
     }
 
-    const twiml = `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Message>Sorry, I couldn't process that. Try again or add manually in the app.</Message>
-</Response>`
+    const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Message>Sorry, I couldn't process that. Try again or add manually in the app.</Message></Response>`
 
     return new Response(twiml, {
-      headers: { ...corsHeaders, 'Content-Type': 'text/xml' },
+      status: 200,
+      headers: {
+        'Content-Type': 'text/xml; charset=utf-8',
+      },
     })
   }
 })
