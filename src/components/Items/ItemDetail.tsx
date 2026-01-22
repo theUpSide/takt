@@ -193,14 +193,12 @@ export default function ItemDetail({ item }: ItemDetailProps) {
           >
             Close
           </button>
-          {item.source === 'manual' && (
-            <button
-              onClick={handleEdit}
-              className="rounded-lg bg-blue-500 px-4 py-2 text-sm font-medium text-white hover:bg-blue-600"
-            >
-              Edit
-            </button>
-          )}
+          <button
+            onClick={handleEdit}
+            className="rounded-lg bg-blue-500 px-4 py-2 text-sm font-medium text-white hover:bg-blue-600"
+          >
+            Edit
+          </button>
         </div>
       </div>
     </div>
