@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
-export type ThemeName = 'default' | 'midnight' | 'matrix' | 'light'
+export type ThemeName = 'takt' | 'default' | 'midnight' | 'matrix' | 'light'
 
 interface ThemeState {
   theme: ThemeName
@@ -9,12 +9,12 @@ interface ThemeState {
   cycleTheme: () => void
 }
 
-const themeOrder: ThemeName[] = ['default', 'midnight', 'matrix', 'light']
+const themeOrder: ThemeName[] = ['takt', 'default', 'midnight', 'matrix', 'light']
 
 export const useThemeStore = create<ThemeState>()(
   persist(
     (set, get) => ({
-      theme: 'default',
+      theme: 'takt',
 
       setTheme: (theme) => {
         set({ theme })
@@ -45,13 +45,14 @@ function applyTheme(theme: ThemeName) {
   const root = document.documentElement
 
   // Remove all theme classes
-  root.classList.remove('theme-default', 'theme-midnight', 'theme-matrix', 'theme-light')
+  root.classList.remove('theme-takt', 'theme-default', 'theme-midnight', 'theme-matrix', 'theme-light')
 
   // Add new theme class
   root.classList.add(`theme-${theme}`)
 }
 
 export const themeLabels: Record<ThemeName, string> = {
+  takt: 'Takt',
   default: 'Default',
   midnight: 'Midnight',
   matrix: 'Matrix',
@@ -59,6 +60,7 @@ export const themeLabels: Record<ThemeName, string> = {
 }
 
 export const themeDescriptions: Record<ThemeName, string> = {
+  takt: 'Official Takt brand theme',
   default: 'Clean, professional dark theme',
   midnight: 'Deep blacks for OLED displays',
   matrix: 'Subtle cyberpunk with green accents',

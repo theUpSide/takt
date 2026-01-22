@@ -11,9 +11,10 @@ import clsx from 'clsx'
 
 type SettingsTab = 'appearance' | 'ai' | 'sms' | 'categories' | 'calendars' | 'people'
 
-const themeOptions: ThemeName[] = ['default', 'midnight', 'matrix', 'light']
+const themeOptions: ThemeName[] = ['takt', 'default', 'midnight', 'matrix', 'light']
 
 const themePreviewColors: Record<ThemeName, { bg: string; accent: string; text: string }> = {
+  takt: { bg: '#1A3B63', accent: '#F2A14A', text: '#ffffff' },
   default: { bg: '#1f2937', accent: '#3b82f6', text: '#f9fafb' },
   midnight: { bg: '#000000', accent: '#3b82f6', text: '#ffffff' },
   matrix: { bg: '#000000', accent: '#00ff41', text: '#e0ffe0' },

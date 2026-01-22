@@ -34,7 +34,7 @@ export default function Layout() {
   // Apply theme class to document element
   useEffect(() => {
     const root = document.documentElement
-    root.classList.remove('theme-default', 'theme-midnight', 'theme-matrix', 'theme-light')
+    root.classList.remove('theme-takt', 'theme-default', 'theme-midnight', 'theme-matrix', 'theme-light')
     root.classList.add(`theme-${theme}`)
   }, [theme])
 

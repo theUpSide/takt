@@ -16,8 +16,56 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Takt Brand Theme (Official) */
+:root, .theme-takt {
+  --bg-primary: #1A3B63;
+  --bg-secondary: #0f2540;
+  --bg-tertiary: #254a75;
+  --bg-card: #1A3B63;
+  --bg-hover: #254a75;
+  --bg-overlay: rgba(15, 37, 64, 0.9);
+
+  --text-primary: #ffffff;
+  --text-secondary: #c8d9e8;
+  --text-muted: #8aa4bd;
+
+  --border-primary: #2a5080;
+  --border-secondary: #3a6090;
+
+  --accent-primary: #165A89;
+  --accent-secondary: #1e7ab8;
+  --accent-success: #34d399;
+  --accent-warning: #F2A14A;
+  --accent-danger: #f87171;
+
+  --glow-primary: rgba(22, 90, 137, 0.5);
+  --glow-success: rgba(52, 211, 153, 0.4);
+  --glow-danger: rgba(248, 113, 113, 0.4);
+
+  --shadow-card: 0 4px 16px rgba(10, 25, 45, 0.5);
+  --shadow-elevated: 0 12px 32px rgba(10, 25, 45, 0.6);
+
+  --header-gradient: linear-gradient(135deg, #1A3B63 0%, #0f2540 100%);
+  --sidebar-gradient: linear-gradient(180deg, #1A3B63 0%, #0f2540 100%);
+  --card-gradient: linear-gradient(145deg, #1e4570 0%, #152d4d 100%);
+
+  color-scheme: dark;
+}
+
+/* Takt theme specific enhancements */
+.theme-takt .card-hover:hover {
+  box-shadow: var(--shadow-elevated), 0 0 20px rgba(242, 161, 74, 0.15);
+}
+
+.theme-takt input:focus,
+.theme-takt select:focus,
+.theme-takt textarea:focus {
+  box-shadow: 0 0 0 2px rgba(242, 161, 74, 0.4);
+  border-color: var(--accent-warning);
+}
+
 /* Default Theme (Professional Dark) */
-:root, .theme-default {
+.theme-default {
   --bg-primary: #1f2937;
   --bg-secondary: #111827;
   --bg-tertiary: #374151;

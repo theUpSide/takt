@@ -48,6 +48,11 @@ const viewOptions: { id: ViewType; label: string; icon: JSX.Element }[] = [
 ]
 
 const themeIcons: Record<ThemeName, JSX.Element> = {
+  takt: (
+    <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
+      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" />
+    </svg>
+  ),
   default: (
     <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
@@ -127,7 +132,14 @@ export default function Header() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
           </svg>
         </button>
-        <h1 className="text-lg md:text-xl font-semibold text-theme-text-primary tracking-tight">Takt</h1>
+        <div className="flex items-center gap-2">
+          <img
+            src="/brand/takt_mark_only_transparent_bg.png"
+            alt="Takt"
+            className="h-7 w-auto"
+          />
+          <span className="hidden sm:inline text-lg font-semibold text-theme-text-primary tracking-tight">Takt</span>
+        </div>
       </div>
 
       {/* Center: View Navigation */}
