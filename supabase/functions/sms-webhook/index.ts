@@ -25,6 +25,12 @@ Parse the user's SMS message and extract ALL tasks and/or events mentioned. Be t
 - Examples: "buy groceries", "call mom", "finish report by Friday"
 - Tasks have due_date (optional) but NO specific time
 
+## TASK CHAINS (SEQUENTIAL/DEPENDENT TASKS)
+When users describe tasks that should be done in order or depend on each other, mark them as a chain:
+- Keywords: "in order", "sequential", "connected tasks", "each depends on", "task chain", "first...then...then"
+- Also recognize multi-line lists where order matters (project phases, process steps)
+- Set "is_chain": true and preserve the order - first item has no dependencies, each subsequent item depends on the previous
+
 ## PARSING RULES
 
 1. **Multiple items**: Look for conjunctions (and, also, plus), commas, numbered lists, or separate sentences
@@ -34,6 +40,7 @@ Parse the user's SMS message and extract ALL tasks and/or events mentioned. Be t
 5. **Category hints**: Infer from context - "dentist" = Health, "meeting" = Work, "groceries" = Home
 6. **Ambiguous times**: If someone says "tomorrow at 11", that's 11:00 AM unless they say PM
 7. **Duration**: Events typically last 30-60 min unless specified ("1 hour meeting")
+8. **Task chains**: Look for sequential language or ordered lists implying dependencies
 
 ## TITLE FORMATTING
 - Keep titles concise (2-6 words)
@@ -44,6 +51,7 @@ Parse the user's SMS message and extract ALL tasks and/or events mentioned. Be t
 Return ONLY valid JSON, no markdown, no explanation:
 
 {
+  "is_chain": false,
   "items": [
     {
       "type": "task" or "event",
@@ -60,40 +68,44 @@ Return ONLY valid JSON, no markdown, no explanation:
 ## EXAMPLES
 
 Input: "remind me to call mom tomorrow"
-Output: {"items":[{"type":"task","title":"Call mom","description":null,"due_date":"[tomorrow's date]","start_time":null,"end_time":null,"category_hint":"Personal"}]}
+Output: {"is_chain":false,"items":[{"type":"task","title":"Call mom","description":null,"due_date":"[tomorrow's date]","start_time":null,"end_time":null,"category_hint":"Personal"}]}
 
 Input: "haircut tomorrow at 11am, pickup dry cleaning friday 7pm"
-Output: {"items":[
+Output: {"is_chain":false,"items":[
   {"type":"event","title":"Get haircut","description":null,"due_date":null,"start_time":"[tomorrow]T11:00:00","end_time":"[tomorrow]T11:30:00","category_hint":"Personal"},
   {"type":"event","title":"Pick up dry cleaning","description":null,"due_date":null,"start_time":"[friday]T19:00:00","end_time":"[friday]T19:15:00","category_hint":"Home"}
 ]}
 
 Input: "I have a few things: 1) buy groceries 2) call dentist to schedule 3) team meeting tuesday 2pm"
-Output: {"items":[
+Output: {"is_chain":false,"items":[
   {"type":"task","title":"Buy groceries","description":null,"due_date":null,"start_time":null,"end_time":null,"category_hint":"Home"},
   {"type":"task","title":"Call dentist to schedule","description":null,"due_date":null,"start_time":null,"end_time":null,"category_hint":"Health"},
   {"type":"event","title":"Team meeting","description":null,"due_date":null,"start_time":"[tuesday]T14:00:00","end_time":"[tuesday]T15:00:00","category_hint":"Work"}
 ]}
 
-Input: "Can you add a task to get a haircut tomorrow at 11 AM, pick up the dry cleaning on Friday at 7 PM, and pick up a home furnace filter today on the way home"
-Output: {"items":[
-  {"type":"event","title":"Get haircut","description":null,"due_date":null,"start_time":"[tomorrow]T11:00:00","end_time":"[tomorrow]T11:30:00","category_hint":"Personal"},
-  {"type":"event","title":"Pick up dry cleaning","description":null,"due_date":null,"start_time":"[friday]T19:00:00","end_time":"[friday]T19:15:00","category_hint":"Home"},
-  {"type":"task","title":"Pick up furnace filter","description":"On the way home","due_date":"[today]","start_time":null,"end_time":null,"category_hint":"Home"}
+Input: "Create these connected tasks in order: Project kickoff, Site survey, Requirements review, Complete first MSR"
+Output: {"is_chain":true,"items":[
+  {"type":"task","title":"Project kickoff","description":null,"due_date":null,"start_time":null,"end_time":null,"category_hint":"Work"},
+  {"type":"task","title":"Site survey","description":null,"due_date":null,"start_time":null,"end_time":null,"category_hint":"Work"},
+  {"type":"task","title":"Requirements review","description":null,"due_date":null,"start_time":null,"end_time":null,"category_hint":"Work"},
+  {"type":"task","title":"Complete first MSR","description":null,"due_date":null,"start_time":null,"end_time":null,"category_hint":"Work"}
 ]}
 
-Input: "meeting with sarah at 3, also need to review the Q4 budget by end of week"
-Output: {"items":[
-  {"type":"event","title":"Meeting with Sarah","description":null,"due_date":null,"start_time":"[today]T15:00:00","end_time":"[today]T16:00:00","category_hint":"Work"},
-  {"type":"task","title":"Review Q4 budget","description":null,"due_date":"[friday]","start_time":null,"end_time":null,"category_hint":"Work"}
+Input: "First I need to draft the proposal, then get manager approval, then submit to client"
+Output: {"is_chain":true,"items":[
+  {"type":"task","title":"Draft proposal","description":null,"due_date":null,"start_time":null,"end_time":null,"category_hint":"Work"},
+  {"type":"task","title":"Get manager approval","description":null,"due_date":null,"start_time":null,"end_time":null,"category_hint":"Work"},
+  {"type":"task","title":"Submit to client","description":null,"due_date":null,"start_time":null,"end_time":null,"category_hint":"Work"}
 ]}
 
 ## CRITICAL RULES
 - ALWAYS return the "items" array format, even for single items
+- ALWAYS include "is_chain" (true if tasks should be linked as dependencies, false otherwise)
 - ALWAYS use actual dates calculated from the current date provided
 - NEVER include markdown formatting or code blocks
 - If unsure whether task or event, prefer TASK unless there's a specific time
-- Extract EVERY item mentioned, don't skip any`
+- Extract EVERY item mentioned, don't skip any
+- For chains, preserve the exact order given - dependencies flow from first to last`
 
 // Helper to log to SMS log table
 async function logSMS(
@@ -338,8 +350,9 @@ Use these EXACT dates when the user mentions relative days.`
       )
     }
 
-    const createdItems: Array<{ type: string; title: string }> = []
+    const createdItems: Array<{ id: string; type: string; title: string }> = []
     const failedItems: string[] = []
+    const isChain = parsed.is_chain === true
 
     for (const item of items) {
       // Validate item has required fields
@@ -390,7 +403,29 @@ Use these EXACT dates when the user mentions relative days.`
       }
 
       console.log('Created item:', newItem.id, newItem.title)
-      createdItems.push({ type: item.type, title: item.title })
+      createdItems.push({ id: newItem.id, type: item.type, title: item.title })
+    }
+
+    // If this is a task chain, create dependencies between consecutive tasks
+    if (isChain && createdItems.length > 1) {
+      console.log('Creating dependencies for task chain...')
+      for (let i = 1; i < createdItems.length; i++) {
+        const predecessorId = createdItems[i - 1].id
+        const successorId = createdItems[i].id
+
+        const { error: depError } = await supabase
+          .from('dependencies')
+          .insert({
+            predecessor_id: predecessorId,
+            successor_id: successorId,
+          })
+
+        if (depError) {
+          console.error('Failed to create dependency:', depError)
+        } else {
+          console.log(`Created dependency: ${createdItems[i - 1].title} -> ${createdItems[i].title}`)
+        }
+      }
     }
 
     // Log the SMS with results
@@ -413,6 +448,9 @@ Use these EXACT dates when the user mentions relative days.`
     } else if (createdItems.length === 1) {
       const item = createdItems[0]
       confirmationMsg = `Got it! Created ${item.type}: "${item.title}"`
+    } else if (isChain) {
+      confirmationMsg = `Got it! Created ${createdItems.length} connected tasks: ` +
+        createdItems.map(i => i.title).join(' -> ')
     } else {
       confirmationMsg = `Got it! Created ${createdItems.length} items: ` +
         createdItems.map(i => i.title).join(', ')
