@@ -7,8 +7,15 @@ import { useToastStore } from './toastStore'
 import { getTodayString } from '@/lib/dateUtils'
 import type { Item } from '@/types'
 
+interface TaskInChain {
+  title: string
+  description?: string
+  due_date?: string
+  category_name?: string
+}
+
 interface ParsedAction {
-  type: 'create_task' | 'create_event' | 'complete_task' | 'delete_task' | 'update_task' | 'unknown'
+  type: 'create_task' | 'create_event' | 'complete_task' | 'delete_task' | 'update_task' | 'create_task_chain' | 'unknown'
   data?: {
     title?: string
     description?: string
@@ -17,6 +24,8 @@ interface ParsedAction {
     end_time?: string
     category_name?: string
     task_identifier?: string
+    // For task chains
+    tasks?: TaskInChain[]
   }
   message?: string
 }
@@ -57,6 +66,7 @@ Available actions:
 3. complete_task - Mark a task as complete
 4. delete_task - Delete a task
 5. update_task - Update an existing task
+6. create_task_chain - Create multiple connected tasks with dependencies (each task depends on the previous one completing first)
 
 When parsing dates:
 - "today" = current date
@@ -66,6 +76,8 @@ When parsing dates:
 - Specific dates like "January 15" or "1/15" should be converted to ISO format
 
 Response format (JSON only, no markdown):
+
+For single actions:
 {
   "type": "create_task" | "create_event" | "complete_task" | "delete_task" | "update_task" | "unknown",
   "data": {
@@ -80,12 +92,29 @@ Response format (JSON only, no markdown):
   "message": "friendly confirmation message to show the user"
 }
 
+For task chains (multiple connected tasks):
+{
+  "type": "create_task_chain",
+  "data": {
+    "tasks": [
+      { "title": "First task" },
+      { "title": "Second task (depends on first)" },
+      { "title": "Third task (depends on second)" }
+    ],
+    "category_name": "optional - applies to all tasks"
+  },
+  "message": "Created X connected tasks with dependencies"
+}
+
 Examples:
 - "remind me to call mom tomorrow" -> create_task with title "Call mom" and due_date tomorrow
 - "meeting with John on Friday at 2pm" -> create_event with title "Meeting with John" and start_time
 - "mark buy groceries as done" -> complete_task with task_identifier "buy groceries"
 - "schedule dentist appointment next Tuesday 10am to 11am" -> create_event
 - "add a work task: review quarterly report by end of week" -> create_task with category_name "Work"
+- Multi-line lists of tasks with phrases like "connected tasks", "in order", "each depends on the previous", "task chain", or "sequential tasks" -> create_task_chain
+
+When you see a list of items (one per line) with language suggesting they should be connected/sequential/dependent, use create_task_chain and preserve the order as-is. The first task in the list becomes the first in the chain, and each subsequent task depends on the one before it.
 
 Always respond with valid JSON only. No explanation text outside the JSON.`
 
@@ -265,6 +294,50 @@ export const useAIStore = create<AIState>()(
                 toast.error(`Could not find task matching "${identifier}"`)
                 return false
               }
+            }
+
+            case 'create_task_chain': {
+              const tasks = action.data?.tasks
+              if (!tasks || tasks.length === 0) {
+                toast.error('No tasks provided for the chain')
+                return false
+              }
+
+              const categoryId = action.data?.category_name
+                ? categoryStore.categories.find(
+                    (c) => c.name.toLowerCase() === action.data!.category_name!.toLowerCase()
+                  )?.id
+                : undefined
+
+              // Create tasks and collect their IDs for dependency linking
+              const createdTaskIds: string[] = []
+
+              for (const taskData of tasks) {
+                const newItem = await itemStore.createItem({
+                  type: 'task',
+                  title: taskData.title,
+                  description: taskData.description,
+                  due_date: taskData.due_date,
+                  category_id: taskData.category_name
+                    ? categoryStore.categories.find(
+                        (c) => c.name.toLowerCase() === taskData.category_name!.toLowerCase()
+                      )?.id
+                    : categoryId,
+                })
+
+                if (newItem) {
+                  createdTaskIds.push(newItem.id)
+
+                  // Create dependency: this task depends on the previous one
+                  if (createdTaskIds.length > 1) {
+                    const predecessorId = createdTaskIds[createdTaskIds.length - 2]
+                    await itemStore.addDependency(predecessorId, newItem.id)
+                  }
+                }
+              }
+
+              toast.success(`Created ${createdTaskIds.length} connected tasks`)
+              return true
             }
 
             case 'unknown':
