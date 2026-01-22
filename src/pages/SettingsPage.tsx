@@ -4,6 +4,7 @@ import CalendarSources from '@/components/Settings/CalendarSources'
 import PeopleManager from '@/components/Settings/PeopleManager'
 import SMSLogViewer from '@/components/Settings/SMSLogViewer'
 import { useThemeStore, themeLabels, themeDescriptions, type ThemeName } from '@/stores/themeStore'
+import { useSettingsStore, commonTimezones } from '@/stores/settingsStore'
 import { useAIStore } from '@/stores/aiStore'
 import { useToastStore } from '@/stores/toastStore'
 import clsx from 'clsx'
@@ -22,10 +23,14 @@ const themePreviewColors: Record<ThemeName, { bg: string; accent: string; text: 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<SettingsTab>('appearance')
   const { theme, setTheme } = useThemeStore()
+  const { timezone, autoDetectTimezone, setTimezone, setAutoDetectTimezone } = useSettingsStore()
   const { apiKey, setApiKey } = useAIStore()
   const toast = useToastStore()
   const [tempApiKey, setTempApiKey] = useState(apiKey || '')
   const [showApiKey, setShowApiKey] = useState(false)
+
+  // Get device timezone for display
+  const deviceTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone
 
   const handleSaveApiKey = () => {
     if (tempApiKey.trim()) {
@@ -221,6 +226,71 @@ export default function SettingsPage() {
                     <div className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow" />
                   </div>
                 </label>
+              </div>
+            </div>
+
+            <div className="border-t border-theme-border-primary pt-6">
+              <h2 className="text-lg font-semibold text-theme-text-primary mb-1">Timezone</h2>
+              <p className="text-sm text-theme-text-muted mb-4">Set your timezone for accurate date and time display</p>
+
+              <div className="space-y-4">
+                {/* Auto-detect toggle */}
+                <label className="flex items-center justify-between rounded-lg border border-theme-border-primary p-4 transition-all-fast hover:bg-theme-bg-hover cursor-pointer">
+                  <div>
+                    <p className="font-medium text-theme-text-primary">Auto-detect timezone</p>
+                    <p className="text-sm text-theme-text-muted">
+                      Use device timezone: {deviceTimezone}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setAutoDetectTimezone(!autoDetectTimezone)}
+                    className={clsx(
+                      'h-6 w-11 rounded-full relative transition-colors',
+                      autoDetectTimezone ? 'bg-theme-accent-primary' : 'bg-theme-bg-tertiary'
+                    )}
+                  >
+                    <div
+                      className={clsx(
+                        'absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all',
+                        autoDetectTimezone ? 'right-0.5' : 'left-0.5'
+                      )}
+                    />
+                  </button>
+                </label>
+
+                {/* Manual timezone selector */}
+                {!autoDetectTimezone && (
+                  <div>
+                    <label className="block text-sm font-medium text-theme-text-primary mb-2">
+                      Select timezone
+                    </label>
+                    <select
+                      value={timezone}
+                      onChange={(e) => setTimezone(e.target.value)}
+                      className="w-full rounded-lg border border-theme-border-primary bg-theme-bg-secondary px-4 py-2.5 text-theme-text-primary focus:border-theme-accent-primary focus:outline-none focus:ring-2 focus:ring-theme-accent-primary/20 transition-all-fast"
+                    >
+                      {commonTimezones.map((tz) => (
+                        <option key={tz.value} value={tz.value}>
+                          {tz.label} ({tz.value})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {/* Current timezone display */}
+                <div className="rounded-lg border border-theme-border-primary bg-theme-bg-secondary p-4">
+                  <div className="flex items-center gap-2 text-theme-text-secondary">
+                    <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span className="font-medium">Current timezone:</span>
+                    <span className="text-theme-text-primary">{timezone}</span>
+                  </div>
+                  <p className="mt-1 text-sm text-theme-text-muted">
+                    Local time: {new Date().toLocaleTimeString('en-US', { timeZone: timezone, hour: '2-digit', minute: '2-digit', timeZoneName: 'short' })}
+                  </p>
+                </div>
               </div>
             </div>
           </div>

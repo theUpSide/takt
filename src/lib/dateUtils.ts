@@ -12,42 +12,85 @@ import {
   endOfDay,
   addHours,
 } from 'date-fns'
+import { toZonedTime } from 'date-fns-tz'
+
+// Import settings store for timezone (can be used outside React context)
+import { useSettingsStore } from '@/stores/settingsStore'
 
 /**
- * Format a date for display in the UI
+ * Get the current timezone from settings
  */
-export function formatDate(date: string | Date, formatStr = 'MMM d, yyyy'): string {
-  const d = typeof date === 'string' ? parseISO(date) : date
-  return format(d, formatStr)
+export function getCurrentTimezone(): string {
+  return useSettingsStore.getState().timezone
 }
 
 /**
- * Format a time for display
+ * Convert a date to the user's timezone
  */
-export function formatTime(date: string | Date): string {
+export function toUserTimezone(date: string | Date, timezone?: string): Date {
   const d = typeof date === 'string' ? parseISO(date) : date
-  return format(d, 'h:mm a')
+  const tz = timezone ?? getCurrentTimezone()
+  return toZonedTime(d, tz)
 }
 
 /**
- * Format a date and time together
+ * Format a date for display in the UI (timezone-aware)
  */
-export function formatDateTime(date: string | Date): string {
+export function formatDate(date: string | Date, formatStr = 'MMM d, yyyy', timezone?: string): string {
   const d = typeof date === 'string' ? parseISO(date) : date
-  return format(d, 'MMM d, yyyy h:mm a')
+  const tz = timezone ?? getCurrentTimezone()
+  const zonedDate = toZonedTime(d, tz)
+  return format(zonedDate, formatStr)
 }
 
 /**
- * Get a relative date string (Today, Tomorrow, Yesterday, or date)
+ * Format a time for display (timezone-aware)
  */
-export function getRelativeDate(date: string | Date): string {
+export function formatTime(date: string | Date, timezone?: string): string {
   const d = typeof date === 'string' ? parseISO(date) : date
+  const tz = timezone ?? getCurrentTimezone()
+  const zonedDate = toZonedTime(d, tz)
+  return format(zonedDate, 'h:mm a')
+}
 
-  if (isToday(d)) return 'Today'
-  if (isTomorrow(d)) return 'Tomorrow'
-  if (isYesterday(d)) return 'Yesterday'
+/**
+ * Format a date and time together (timezone-aware)
+ */
+export function formatDateTime(date: string | Date, timezone?: string): string {
+  const d = typeof date === 'string' ? parseISO(date) : date
+  const tz = timezone ?? getCurrentTimezone()
+  const zonedDate = toZonedTime(d, tz)
+  return format(zonedDate, 'MMM d, yyyy h:mm a')
+}
 
-  return format(d, 'MMM d')
+/**
+ * Format time using native Intl API (useful for displaying timezone abbreviation)
+ */
+export function formatTimeWithZone(date: string | Date, timezone?: string): string {
+  const d = typeof date === 'string' ? parseISO(date) : date
+  const tz = timezone ?? getCurrentTimezone()
+  return d.toLocaleTimeString('en-US', {
+    timeZone: tz,
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short'
+  })
+}
+
+/**
+ * Get a relative date string (Today, Tomorrow, Yesterday, or date) - timezone-aware
+ */
+export function getRelativeDate(date: string | Date, timezone?: string): string {
+  const d = typeof date === 'string' ? parseISO(date) : date
+  const tz = timezone ?? getCurrentTimezone()
+  const zonedDate = toZonedTime(d, tz)
+
+  // Check relative to user's timezone
+  if (isToday(zonedDate)) return 'Today'
+  if (isTomorrow(zonedDate)) return 'Tomorrow'
+  if (isYesterday(zonedDate)) return 'Yesterday'
+
+  return format(zonedDate, 'MMM d')
 }
 
 /**
@@ -138,21 +181,23 @@ export function isFutureDate(date: string | Date): boolean {
 }
 
 /**
- * Get today's date in local timezone as YYYY-MM-DD
+ * Get a date in user's timezone as YYYY-MM-DD
  * This avoids UTC conversion issues with toISOString()
  */
-export function getLocalDateString(date: Date = new Date()): string {
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
+export function getLocalDateString(date: Date = new Date(), timezone?: string): string {
+  const tz = timezone ?? getCurrentTimezone()
+  const zonedDate = toZonedTime(date, tz)
+  const year = zonedDate.getFullYear()
+  const month = String(zonedDate.getMonth() + 1).padStart(2, '0')
+  const day = String(zonedDate.getDate()).padStart(2, '0')
   return `${year}-${month}-${day}`
 }
 
 /**
- * Get today's date as YYYY-MM-DD in local timezone
+ * Get today's date as YYYY-MM-DD in user's timezone
  */
-export function getTodayString(): string {
-  return getLocalDateString(new Date())
+export function getTodayString(timezone?: string): string {
+  return getLocalDateString(new Date(), timezone)
 }
 
 export { parseISO, isBefore, isAfter }
