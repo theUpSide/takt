@@ -43,7 +43,7 @@ export default function DailyPlannerView() {
   const isMobile = useIsMobile()
 
   const { items, getItemsForDate, getUnscheduledTasks, scheduleItem, unscheduleItem } = useItemStore()
-  const { optimizeSchedule, apiKey } = useAIStore()
+  const { optimizeSchedule } = useAIStore()
   const { categories } = useCategoryStore()
 
   // Get items for the selected date
@@ -88,12 +88,11 @@ export default function DailyPlannerView() {
     }
   }
 
+  // Check if there are any tasks that could be optimized
+  const hasTasksToOptimize = unscheduledTasks.length > 0
+
   // Handle AI optimization
   const handleOptimize = async () => {
-    if (!apiKey) {
-      return
-    }
-
     setIsOptimizing(true)
     try {
       const result = await optimizeSchedule(selectedDate, scheduledItems, unscheduledTasks)
@@ -138,14 +137,14 @@ export default function DailyPlannerView() {
         <div className="flex items-center gap-2">
           <button
             onClick={handleOptimize}
-            disabled={isOptimizing || !apiKey}
+            disabled={isOptimizing || !hasTasksToOptimize}
             className={clsx(
               'flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-all-fast btn-press',
-              apiKey
+              hasTasksToOptimize
                 ? 'bg-gradient-to-r from-theme-accent-primary to-theme-accent-secondary text-white hover:opacity-90 shadow-md hover:shadow-glow-primary'
                 : 'bg-theme-bg-tertiary text-theme-text-muted cursor-not-allowed'
             )}
-            title={!apiKey ? 'Configure API key in Settings' : 'Optimize schedule with AI'}
+            title={!hasTasksToOptimize ? 'Add unscheduled tasks to optimize' : 'Optimize schedule with AI'}
           >
             {isOptimizing ? (
               <>

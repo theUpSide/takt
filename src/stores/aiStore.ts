@@ -316,24 +316,36 @@ export const useAIStore = create<AIState>()(
           const availableTasks = unscheduledTasks.map(item => ({
             id: item.id,
             title: item.title,
+            description: item.description || null,
             category: item.category?.name || 'None',
             due_date: item.due_date,
-            duration: item.duration_minutes || 30,
+            user_estimated_duration: item.duration_minutes || null,
           }))
 
           const scheduleSystemPrompt = `You are a productivity assistant helping optimize a daily schedule for ${date}.
 
 Your job is to suggest optimal time slots for unscheduled tasks, while respecting existing fixed events.
 
-Guidelines:
+IMPORTANT - Duration Estimation:
+- You have extensive world knowledge about how long typical tasks take
+- Use the task title and description to intelligently estimate realistic durations
+- If a user provided an estimate, consider it but use your judgment if it seems unrealistic
+- Common duration guidelines:
+  * Quick tasks (emails, calls, simple updates): 15-30 min
+  * Medium tasks (meetings, focused work sessions): 30-60 min
+  * Deep work (coding, writing, analysis): 60-120 min
+  * Errands, appointments: 30-90 min depending on type
+- When in doubt, estimate slightly longer to build in buffer
+
+Scheduling Guidelines:
 - Events (meetings, appointments) are FIXED and cannot be moved
 - Tasks can be placed in any available time slot between 6:00 AM and 10:00 PM
-- Respect task duration estimates
-- Place high-priority or time-sensitive tasks (those with due dates) earlier in the day
+- Place high-priority or time-sensitive tasks (those with due dates today) earlier
 - Group similar category tasks together when possible
-- Include 15-minute buffers between activities when reasonable
-- Peak productivity hours are typically 9-11 AM and 2-4 PM - place important tasks there
-- Avoid scheduling right before/after fixed events without buffer time
+- Include 15-minute buffers between activities
+- Peak productivity hours: 9-11 AM and 2-4 PM for complex work
+- Schedule routine/simple tasks during low-energy times (early morning, after lunch)
+- Avoid back-to-back intensive tasks
 
 Response format (JSON only, no markdown):
 {
@@ -341,11 +353,11 @@ Response format (JSON only, no markdown):
     { "item_id": "task-uuid", "scheduled_start": "HH:MM", "duration_minutes": 30 },
     { "item_id": "task-uuid", "scheduled_start": "HH:MM", "duration_minutes": 45 }
   ],
-  "reasoning": "Brief explanation of the scheduling decisions made"
+  "reasoning": "Brief explanation of your scheduling decisions and duration estimates"
 }
 
-Only include tasks that you're suggesting to schedule. Don't include already-scheduled items or events.
-If no tasks need scheduling or there's no room, return an empty schedule array with an explanation.`
+Schedule ALL provided unscheduled tasks unless there's genuinely no room.
+Be proactive and helpful - make intelligent decisions about timing and duration.`
 
           const userContent = `
 Existing Fixed Events (cannot be moved):
