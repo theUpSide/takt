@@ -7,105 +7,171 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-// Comprehensive SMS parsing prompt for Claude
-const SMS_SYSTEM_PROMPT = `You are an expert assistant that parses natural language SMS messages into structured task and event data for a task management app called Takt.
+// Comprehensive SMS parsing prompt for Claude - supports queries, creation, batch ops, and more
+const SMS_SYSTEM_PROMPT = `You are an expert assistant for a task management app called Takt. You handle SMS messages for:
+1. Creating tasks and events
+2. Querying existing tasks
+3. Batch operations (reschedule, complete, delete multiple)
+4. Task decomposition (breaking down complex tasks)
+5. Completing or updating specific tasks
 
-## YOUR ROLE
-Parse the user's SMS message and extract ALL tasks and/or events mentioned. Be thorough - users often mention multiple items in a single message.
+## DETERMINE THE ACTION TYPE
 
-## UNDERSTANDING TASKS vs EVENTS
+First, identify what the user wants:
 
-**EVENTS** - Have a specific scheduled time:
-- Keywords: "at", "from...to", "meeting", "appointment", "call with", "lunch with", "dinner at"
-- Examples: "haircut at 3pm", "meeting with John at 2", "dentist appointment tomorrow 10am"
-- Events have start_time (required) and optionally end_time
+**QUERY** - User is asking about their tasks:
+- "what's due today", "what do I have today", "today's tasks"
+- "what's overdue", "show overdue", "late tasks"
+- "what's due this week", "this week's tasks"
+- "show my tasks", "what's on my plate", "my todo list"
+- "what's in [category]", "show work tasks"
 
-**TASKS** - To-do items without a specific time:
-- Keywords: "need to", "have to", "remind me to", "don't forget", "pick up", "buy", "call", "email"
-- Examples: "buy groceries", "call mom", "finish report by Friday"
-- Tasks have due_date (optional) but NO specific time
+**CREATE** - User wants to add new tasks/events:
+- "remind me to", "add task", "create", "schedule", "need to"
+- Any mention of specific tasks without query words
 
-## TASK CHAINS (SEQUENTIAL/DEPENDENT TASKS)
-When users describe tasks that should be done in order or depend on each other, mark them as a chain:
-- Keywords: "in order", "sequential", "connected tasks", "each depends on", "task chain", "first...then...then"
-- Also recognize multi-line lists where order matters (project phases, process steps)
-- Set "is_chain": true and preserve the order - first item has no dependencies, each subsequent item depends on the previous
+**BATCH** - User wants bulk operations:
+- "reschedule all overdue to tomorrow"
+- "move everything from today to monday"
+- "complete all home tasks"
+- "delete completed tasks"
 
-## PARSING RULES
+**DECOMPOSE** - User wants to break down a task:
+- "break down [task]", "decompose [task]", "split [task] into subtasks"
+- "what steps for [task]", "help me plan [task]"
 
-1. **Multiple items**: Look for conjunctions (and, also, plus), commas, numbered lists, or separate sentences
-2. **Relative dates**: Convert "today", "tomorrow", "next Monday", "this Friday" to actual YYYY-MM-DD dates
-3. **Relative times**: Convert "at 3", "at 3pm", "3 o'clock" to full ISO datetime
-4. **Implied items**: "pickup X on the way home" = event (implies going somewhere at a time)
-5. **Category hints**: Infer from context - "dentist" = Health, "meeting" = Work, "groceries" = Home
-6. **Ambiguous times**: If someone says "tomorrow at 11", that's 11:00 AM unless they say PM
-7. **Duration**: Events typically last 30-60 min unless specified ("1 hour meeting")
-8. **Task chains**: Look for sequential language or ordered lists implying dependencies
+**COMPLETE** - User wants to mark task(s) done:
+- "mark [task] done", "complete [task]", "finished [task]", "done with [task]"
 
-## TITLE FORMATTING
-- Keep titles concise (2-6 words)
-- Use action verbs: "Get haircut", "Pick up dry cleaning", "Call dentist"
-- Don't include dates/times in the title - those go in the date fields
+**DELETE** - User wants to remove task(s):
+- "delete [task]", "remove [task]", "cancel [task]"
 
 ## RESPONSE FORMAT
-Return ONLY valid JSON, no markdown, no explanation:
 
+Return ONLY valid JSON based on action type:
+
+### For QUERY:
 {
+  "action": "query",
+  "query_type": "due_today" | "due_this_week" | "overdue" | "all_pending" | "by_category",
+  "category_filter": "Work" (optional, for by_category),
+  "message": "Let me check your tasks..."
+}
+
+### For CREATE (single or multiple items):
+{
+  "action": "create",
   "is_chain": false,
   "items": [
     {
-      "type": "task" or "event",
-      "title": "Concise action title",
-      "description": "Additional context or null",
-      "due_date": "YYYY-MM-DD or null (tasks only)",
-      "start_time": "YYYY-MM-DDTHH:MM:SS or null (events only)",
-      "end_time": "YYYY-MM-DDTHH:MM:SS or null (events, optional)",
-      "category_hint": "Work/Personal/Home/Health/Finance or null"
+      "type": "task" | "event",
+      "title": "Concise title",
+      "description": "Optional context" | null,
+      "due_date": "YYYY-MM-DD" | null,
+      "start_time": "YYYY-MM-DDTHH:MM:SS" | null,
+      "end_time": "YYYY-MM-DDTHH:MM:SS" | null,
+      "category_hint": "Work/Personal/Home/Health/Finance" | null,
+      "suggested_recurring": { "frequency": "daily|weekly|monthly", "day": "monday" } | null
     }
   ]
 }
 
+### For BATCH operations:
+{
+  "action": "batch",
+  "operation": "reschedule" | "complete" | "delete",
+  "filter": {
+    "status": "overdue" | "due_today" | "completed" | "all_pending",
+    "category": "Work" | null,
+    "date": "YYYY-MM-DD" | null
+  },
+  "reschedule_to": "YYYY-MM-DD" (required for reschedule),
+  "message": "Description of what will happen"
+}
+
+### For DECOMPOSE:
+{
+  "action": "decompose",
+  "original_task": "The task to break down",
+  "subtasks": [
+    { "title": "Step 1", "description": null },
+    { "title": "Step 2", "description": null },
+    { "title": "Step 3", "description": null }
+  ],
+  "category_hint": "Work" | null,
+  "message": "Here's how I'd break that down..."
+}
+
+### For COMPLETE:
+{
+  "action": "complete",
+  "task_identifier": "partial title to match",
+  "message": "Marking task as complete..."
+}
+
+### For DELETE:
+{
+  "action": "delete",
+  "task_identifier": "partial title to match",
+  "message": "Removing task..."
+}
+
+## RECURRING TASK DETECTION
+When creating tasks, detect recurring patterns:
+- "weekly standup" -> suggested_recurring: { frequency: "weekly" }
+- "daily medication" -> suggested_recurring: { frequency: "daily" }
+- "monthly review" -> suggested_recurring: { frequency: "monthly" }
+- "every monday" -> suggested_recurring: { frequency: "weekly", day: "monday" }
+
+## TASK DECOMPOSITION GUIDELINES
+When decomposing, create 3-7 logical subtasks:
+- "Plan vacation" -> Research destinations, Set budget, Book flights, Book hotel, Plan activities, Pack
+- "Launch product" -> Finalize features, QA testing, Prepare marketing, Set up analytics, Deploy, Announce
+- Make subtasks actionable and specific
+
+## DATE PARSING
+- "today" = current date
+- "tomorrow" = next day
+- "next week" = 7 days from now
+- "next Monday" = coming Monday
+- "end of week" = Friday
+
 ## EXAMPLES
 
+Input: "what's due today"
+Output: {"action":"query","query_type":"due_today","message":"Let me check what's due today..."}
+
+Input: "show my overdue tasks"
+Output: {"action":"query","query_type":"overdue","message":"Checking for overdue tasks..."}
+
+Input: "reschedule all overdue tasks to tomorrow"
+Output: {"action":"batch","operation":"reschedule","filter":{"status":"overdue"},"reschedule_to":"[tomorrow's date]","message":"I'll move all overdue tasks to tomorrow"}
+
+Input: "complete all home tasks"
+Output: {"action":"batch","operation":"complete","filter":{"status":"all_pending","category":"Home"},"message":"Marking all Home tasks as complete"}
+
+Input: "break down plan vacation into steps"
+Output: {"action":"decompose","original_task":"Plan vacation","subtasks":[{"title":"Research destinations","description":null},{"title":"Set budget","description":null},{"title":"Book flights","description":null},{"title":"Book accommodations","description":null},{"title":"Plan activities","description":null}],"category_hint":"Personal","message":"Here's how to break down planning your vacation"}
+
 Input: "remind me to call mom tomorrow"
-Output: {"is_chain":false,"items":[{"type":"task","title":"Call mom","description":null,"due_date":"[tomorrow's date]","start_time":null,"end_time":null,"category_hint":"Personal"}]}
+Output: {"action":"create","is_chain":false,"items":[{"type":"task","title":"Call mom","description":null,"due_date":"[tomorrow]","start_time":null,"end_time":null,"category_hint":"Personal","suggested_recurring":null}]}
 
-Input: "haircut tomorrow at 11am, pickup dry cleaning friday 7pm"
-Output: {"is_chain":false,"items":[
-  {"type":"event","title":"Get haircut","description":null,"due_date":null,"start_time":"[tomorrow]T11:00:00","end_time":"[tomorrow]T11:30:00","category_hint":"Personal"},
-  {"type":"event","title":"Pick up dry cleaning","description":null,"due_date":null,"start_time":"[friday]T19:00:00","end_time":"[friday]T19:15:00","category_hint":"Home"}
-]}
+Input: "weekly team standup every monday at 10am"
+Output: {"action":"create","is_chain":false,"items":[{"type":"event","title":"Team standup","description":null,"due_date":null,"start_time":"[next monday]T10:00:00","end_time":"[next monday]T10:30:00","category_hint":"Work","suggested_recurring":{"frequency":"weekly","day":"monday"}}]}
 
-Input: "I have a few things: 1) buy groceries 2) call dentist to schedule 3) team meeting tuesday 2pm"
-Output: {"is_chain":false,"items":[
-  {"type":"task","title":"Buy groceries","description":null,"due_date":null,"start_time":null,"end_time":null,"category_hint":"Home"},
-  {"type":"task","title":"Call dentist to schedule","description":null,"due_date":null,"start_time":null,"end_time":null,"category_hint":"Health"},
-  {"type":"event","title":"Team meeting","description":null,"due_date":null,"start_time":"[tuesday]T14:00:00","end_time":"[tuesday]T15:00:00","category_hint":"Work"}
-]}
+Input: "mark buy groceries as done"
+Output: {"action":"complete","task_identifier":"buy groceries","message":"Marking 'buy groceries' as complete"}
 
-Input: "Create these connected tasks in order: Project kickoff, Site survey, Requirements review, Complete first MSR"
-Output: {"is_chain":true,"items":[
-  {"type":"task","title":"Project kickoff","description":null,"due_date":null,"start_time":null,"end_time":null,"category_hint":"Work"},
-  {"type":"task","title":"Site survey","description":null,"due_date":null,"start_time":null,"end_time":null,"category_hint":"Work"},
-  {"type":"task","title":"Requirements review","description":null,"due_date":null,"start_time":null,"end_time":null,"category_hint":"Work"},
-  {"type":"task","title":"Complete first MSR","description":null,"due_date":null,"start_time":null,"end_time":null,"category_hint":"Work"}
-]}
-
-Input: "First I need to draft the proposal, then get manager approval, then submit to client"
-Output: {"is_chain":true,"items":[
-  {"type":"task","title":"Draft proposal","description":null,"due_date":null,"start_time":null,"end_time":null,"category_hint":"Work"},
-  {"type":"task","title":"Get manager approval","description":null,"due_date":null,"start_time":null,"end_time":null,"category_hint":"Work"},
-  {"type":"task","title":"Submit to client","description":null,"due_date":null,"start_time":null,"end_time":null,"category_hint":"Work"}
-]}
+Input: "create connected tasks: design mockups, get feedback, implement changes"
+Output: {"action":"create","is_chain":true,"items":[{"type":"task","title":"Design mockups","description":null,"due_date":null,"start_time":null,"end_time":null,"category_hint":"Work","suggested_recurring":null},{"type":"task","title":"Get feedback","description":null,"due_date":null,"start_time":null,"end_time":null,"category_hint":"Work","suggested_recurring":null},{"type":"task","title":"Implement changes","description":null,"due_date":null,"start_time":null,"end_time":null,"category_hint":"Work","suggested_recurring":null}]}
 
 ## CRITICAL RULES
-- ALWAYS return the "items" array format, even for single items
-- ALWAYS include "is_chain" (true if tasks should be linked as dependencies, false otherwise)
-- ALWAYS use actual dates calculated from the current date provided
-- NEVER include markdown formatting or code blocks
-- If unsure whether task or event, prefer TASK unless there's a specific time
-- Extract EVERY item mentioned, don't skip any
-- For chains, preserve the exact order given - dependencies flow from first to last`
+- ALWAYS determine the correct action type first
+- ALWAYS return valid JSON, no markdown
+- Use EXACT dates from the provided date context
+- For queries, don't create items - just return query parameters
+- For decompose, generate realistic subtasks based on the task
+- Detect recurring patterns and include suggested_recurring when appropriate`
 
 // Helper to log to SMS log table
 async function logSMS(
@@ -332,128 +398,475 @@ Use these EXACT dates when the user mentions relative days.`
 
     console.log('Parsed result:', JSON.stringify(parsed, null, 2))
 
-    // Handle both old single-item format and new multi-item format
-    const items = parsed.items || [parsed]
-
-    if (!Array.isArray(items) || items.length === 0) {
-      console.error('No items in parsed result:', parsed)
-      await logSMS(supabase, {
-        twilio_sid: messageSid,
-        from_number: from,
-        body: body,
-        parsed_result: parsed,
-        error: 'No items found in parsed result',
-      })
-      return new Response(
-        '<?xml version="1.0" encoding="UTF-8"?><Response><Message>Sorry, I couldn\'t find any tasks or events in your message.</Message></Response>',
-        { headers: { ...corsHeaders, 'Content-Type': 'text/xml' }, status: 200 }
-      )
-    }
-
-    const createdItems: Array<{ id: string; type: string; title: string }> = []
-    const failedItems: string[] = []
-    const isChain = parsed.is_chain === true
-
-    for (const item of items) {
-      // Validate item has required fields
-      if (!item.type || !item.title) {
-        console.warn('Skipping invalid item:', item)
-        failedItems.push(`Invalid item: missing type or title`)
-        continue
-      }
-
-      // Find matching category
-      let categoryId = null
-      if (item.category_hint && categories) {
-        const matchedCategory = categories.find(
-          (c: { id: string; name: string }) => c.name.toLowerCase() === item.category_hint.toLowerCase()
-        )
-        categoryId = matchedCategory?.id || null
-      }
-
-      // Create the item in the database
-      const itemData: Record<string, unknown> = {
-        type: item.type,
-        title: item.title,
-        description: item.description || null,
-        category_id: categoryId,
-        source: 'sms',
-        raw_sms: body,
-      }
-
-      if (item.type === 'task' && item.due_date) {
-        itemData.due_date = item.due_date
-      } else if (item.type === 'event') {
-        if (item.start_time) itemData.start_time = item.start_time
-        if (item.end_time) itemData.end_time = item.end_time
-      }
-
-      console.log('Creating item:', itemData)
-
-      const { data: newItem, error: itemError } = await supabase
-        .from('items')
-        .insert(itemData)
-        .select()
-        .single()
-
-      if (itemError) {
-        console.error('Error creating item:', itemError)
-        failedItems.push(`Failed to create "${item.title}": ${itemError.message}`)
-        continue
-      }
-
-      console.log('Created item:', newItem.id, newItem.title)
-      createdItems.push({ id: newItem.id, type: item.type, title: item.title })
-    }
-
-    // If this is a task chain, create dependencies between consecutive tasks
-    if (isChain && createdItems.length > 1) {
-      console.log('Creating dependencies for task chain...')
-      for (let i = 1; i < createdItems.length; i++) {
-        const predecessorId = createdItems[i - 1].id
-        const successorId = createdItems[i].id
-
-        const { error: depError } = await supabase
-          .from('dependencies')
-          .insert({
-            predecessor_id: predecessorId,
-            successor_id: successorId,
-          })
-
-        if (depError) {
-          console.error('Failed to create dependency:', depError)
-        } else {
-          console.log(`Created dependency: ${createdItems[i - 1].title} -> ${createdItems[i].title}`)
-        }
-      }
-    }
-
-    // Log the SMS with results
-    await logSMS(supabase, {
-      twilio_sid: messageSid,
-      from_number: from,
-      body: body,
-      parsed_result: parsed,
-      items_created: createdItems.length,
-      error: failedItems.length > 0 ? failedItems.join('; ') : undefined,
-    })
-
-    // Build confirmation message
+    // Determine action type and handle accordingly
+    const action = parsed.action || 'create' // Default to create for backwards compatibility
     let confirmationMsg: string
-    if (createdItems.length === 0) {
-      confirmationMsg = "Sorry, I couldn't create any items from that message."
-      if (failedItems.length > 0) {
-        confirmationMsg += ` Error: ${failedItems[0]}`
+
+    switch (action) {
+      // ============ QUERY ACTION ============
+      case 'query': {
+        const queryType = parsed.query_type
+        let queryResults: Array<{ id: string; title: string; due_date?: string; type: string }> = []
+
+        if (queryType === 'due_today') {
+          const { data } = await supabase
+            .from('items')
+            .select('id, title, due_date, type, start_time')
+            .eq('completed', false)
+            .or(`due_date.eq.${dateInfo.today},start_time.gte.${dateInfo.today}T00:00:00,start_time.lt.${dateInfo.tomorrow}T00:00:00`)
+            .order('due_date', { ascending: true })
+            .limit(10)
+          queryResults = data || []
+        } else if (queryType === 'due_this_week') {
+          const weekEnd = new Date()
+          weekEnd.setDate(weekEnd.getDate() + 7)
+          const weekEndStr = weekEnd.toISOString().split('T')[0]
+          const { data } = await supabase
+            .from('items')
+            .select('id, title, due_date, type')
+            .eq('completed', false)
+            .gte('due_date', dateInfo.today)
+            .lte('due_date', weekEndStr)
+            .order('due_date', { ascending: true })
+            .limit(15)
+          queryResults = data || []
+        } else if (queryType === 'overdue') {
+          const { data } = await supabase
+            .from('items')
+            .select('id, title, due_date, type')
+            .eq('completed', false)
+            .eq('type', 'task')
+            .lt('due_date', dateInfo.today)
+            .order('due_date', { ascending: true })
+            .limit(10)
+          queryResults = data || []
+        } else if (queryType === 'all_pending') {
+          const { data } = await supabase
+            .from('items')
+            .select('id, title, due_date, type')
+            .eq('completed', false)
+            .order('due_date', { ascending: true, nullsFirst: false })
+            .limit(15)
+          queryResults = data || []
+        } else if (queryType === 'by_category' && parsed.category_filter) {
+          const categoryMatch = categories?.find(
+            (c: { id: string; name: string }) => c.name.toLowerCase() === parsed.category_filter.toLowerCase()
+          )
+          if (categoryMatch) {
+            const { data } = await supabase
+              .from('items')
+              .select('id, title, due_date, type')
+              .eq('completed', false)
+              .eq('category_id', categoryMatch.id)
+              .order('due_date', { ascending: true, nullsFirst: false })
+              .limit(15)
+            queryResults = data || []
+          }
+        }
+
+        // Format response
+        if (queryResults.length === 0) {
+          confirmationMsg = queryType === 'overdue'
+            ? "Great news! You have no overdue tasks."
+            : queryType === 'due_today'
+            ? "You have nothing due today. Enjoy your free time!"
+            : "No tasks found matching that query."
+        } else {
+          const taskList = queryResults
+            .slice(0, 8) // Keep SMS concise
+            .map((t, i) => `${i + 1}. ${t.title}${t.due_date ? ` (${t.due_date})` : ''}`)
+            .join('\n')
+
+          const header = queryType === 'overdue'
+            ? `You have ${queryResults.length} overdue task${queryResults.length > 1 ? 's' : ''}:`
+            : queryType === 'due_today'
+            ? `Today's tasks (${queryResults.length}):`
+            : queryType === 'due_this_week'
+            ? `This week (${queryResults.length}):`
+            : `Tasks (${queryResults.length}):`
+
+          confirmationMsg = `${header}\n${taskList}`
+          if (queryResults.length > 8) {
+            confirmationMsg += `\n...and ${queryResults.length - 8} more`
+          }
+        }
+
+        await logSMS(supabase, {
+          twilio_sid: messageSid,
+          from_number: from,
+          body: body,
+          parsed_result: parsed,
+          items_created: 0,
+        })
+        break
       }
-    } else if (createdItems.length === 1) {
-      const item = createdItems[0]
-      confirmationMsg = `Got it! Created ${item.type}: "${item.title}"`
-    } else if (isChain) {
-      confirmationMsg = `Got it! Created ${createdItems.length} connected tasks: ` +
-        createdItems.map(i => i.title).join(' -> ')
-    } else {
-      confirmationMsg = `Got it! Created ${createdItems.length} items: ` +
-        createdItems.map(i => i.title).join(', ')
+
+      // ============ BATCH ACTION ============
+      case 'batch': {
+        const operation = parsed.operation
+        const filter = parsed.filter || {}
+        let affectedItems: Array<{ id: string; title: string }> = []
+
+        // Build query based on filter
+        let query = supabase.from('items').select('id, title, due_date')
+
+        if (filter.status === 'overdue') {
+          query = query.eq('completed', false).eq('type', 'task').lt('due_date', dateInfo.today)
+        } else if (filter.status === 'due_today') {
+          query = query.eq('completed', false).eq('due_date', dateInfo.today)
+        } else if (filter.status === 'completed') {
+          query = query.eq('completed', true)
+        } else if (filter.status === 'all_pending') {
+          query = query.eq('completed', false)
+        }
+
+        if (filter.category && categories) {
+          const cat = categories.find(
+            (c: { id: string; name: string }) => c.name.toLowerCase() === filter.category.toLowerCase()
+          )
+          if (cat) {
+            query = query.eq('category_id', cat.id)
+          }
+        }
+
+        if (filter.date) {
+          query = query.eq('due_date', filter.date)
+        }
+
+        const { data: itemsToUpdate } = await query.limit(50)
+        affectedItems = itemsToUpdate || []
+
+        if (affectedItems.length === 0) {
+          confirmationMsg = "No tasks match that criteria."
+        } else if (operation === 'reschedule' && parsed.reschedule_to) {
+          // Reschedule all matching items
+          const ids = affectedItems.map(i => i.id)
+          const { error } = await supabase
+            .from('items')
+            .update({ due_date: parsed.reschedule_to, updated_at: new Date().toISOString() })
+            .in('id', ids)
+
+          if (error) {
+            confirmationMsg = `Failed to reschedule: ${error.message}`
+          } else {
+            confirmationMsg = `Rescheduled ${affectedItems.length} task${affectedItems.length > 1 ? 's' : ''} to ${parsed.reschedule_to}`
+          }
+        } else if (operation === 'complete') {
+          // Complete all matching items
+          const ids = affectedItems.map(i => i.id)
+          const { error } = await supabase
+            .from('items')
+            .update({ completed: true, completed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+            .in('id', ids)
+
+          if (error) {
+            confirmationMsg = `Failed to complete: ${error.message}`
+          } else {
+            confirmationMsg = `Completed ${affectedItems.length} task${affectedItems.length > 1 ? 's' : ''}! Nice work!`
+          }
+        } else if (operation === 'delete') {
+          // Delete all matching items
+          const ids = affectedItems.map(i => i.id)
+          const { error } = await supabase
+            .from('items')
+            .delete()
+            .in('id', ids)
+
+          if (error) {
+            confirmationMsg = `Failed to delete: ${error.message}`
+          } else {
+            confirmationMsg = `Deleted ${affectedItems.length} item${affectedItems.length > 1 ? 's' : ''}`
+          }
+        } else {
+          confirmationMsg = "Unknown batch operation."
+        }
+
+        await logSMS(supabase, {
+          twilio_sid: messageSid,
+          from_number: from,
+          body: body,
+          parsed_result: parsed,
+          items_created: 0,
+        })
+        break
+      }
+
+      // ============ DECOMPOSE ACTION ============
+      case 'decompose': {
+        const subtasks = parsed.subtasks || []
+        if (subtasks.length === 0) {
+          confirmationMsg = "I couldn't break that task down. Try being more specific."
+          break
+        }
+
+        const createdSubtasks: Array<{ id: string; title: string }> = []
+
+        // Find category
+        let categoryId = null
+        if (parsed.category_hint && categories) {
+          const cat = categories.find(
+            (c: { id: string; name: string }) => c.name.toLowerCase() === parsed.category_hint.toLowerCase()
+          )
+          categoryId = cat?.id || null
+        }
+
+        // Create subtasks as a chain
+        for (const subtask of subtasks) {
+          const { data: newItem, error } = await supabase
+            .from('items')
+            .insert({
+              type: 'task',
+              title: subtask.title,
+              description: subtask.description || `Part of: ${parsed.original_task}`,
+              category_id: categoryId,
+              source: 'sms',
+              raw_sms: body,
+            })
+            .select()
+            .single()
+
+          if (!error && newItem) {
+            createdSubtasks.push({ id: newItem.id, title: subtask.title })
+
+            // Create dependency chain
+            if (createdSubtasks.length > 1) {
+              await supabase.from('dependencies').insert({
+                predecessor_id: createdSubtasks[createdSubtasks.length - 2].id,
+                successor_id: newItem.id,
+              })
+            }
+          }
+        }
+
+        if (createdSubtasks.length > 0) {
+          confirmationMsg = `Broke down "${parsed.original_task}" into ${createdSubtasks.length} connected subtasks:\n` +
+            createdSubtasks.map((t, i) => `${i + 1}. ${t.title}`).join('\n')
+        } else {
+          confirmationMsg = "Failed to create subtasks."
+        }
+
+        await logSMS(supabase, {
+          twilio_sid: messageSid,
+          from_number: from,
+          body: body,
+          parsed_result: parsed,
+          items_created: createdSubtasks.length,
+        })
+        break
+      }
+
+      // ============ COMPLETE ACTION ============
+      case 'complete': {
+        const identifier = parsed.task_identifier?.toLowerCase()
+        if (!identifier) {
+          confirmationMsg = "I couldn't identify which task to complete."
+          break
+        }
+
+        const { data: matchingTasks } = await supabase
+          .from('items')
+          .select('id, title')
+          .eq('completed', false)
+          .ilike('title', `%${identifier}%`)
+          .limit(1)
+
+        if (!matchingTasks || matchingTasks.length === 0) {
+          confirmationMsg = `Couldn't find an open task matching "${identifier}"`
+        } else {
+          const task = matchingTasks[0]
+          const { error } = await supabase
+            .from('items')
+            .update({ completed: true, completed_at: new Date().toISOString() })
+            .eq('id', task.id)
+
+          if (error) {
+            confirmationMsg = `Failed to complete task: ${error.message}`
+          } else {
+            confirmationMsg = `Done! Completed "${task.title}"`
+          }
+        }
+
+        await logSMS(supabase, {
+          twilio_sid: messageSid,
+          from_number: from,
+          body: body,
+          parsed_result: parsed,
+          items_created: 0,
+        })
+        break
+      }
+
+      // ============ DELETE ACTION ============
+      case 'delete': {
+        const identifier = parsed.task_identifier?.toLowerCase()
+        if (!identifier) {
+          confirmationMsg = "I couldn't identify which task to delete."
+          break
+        }
+
+        const { data: matchingTasks } = await supabase
+          .from('items')
+          .select('id, title')
+          .ilike('title', `%${identifier}%`)
+          .limit(1)
+
+        if (!matchingTasks || matchingTasks.length === 0) {
+          confirmationMsg = `Couldn't find a task matching "${identifier}"`
+        } else {
+          const task = matchingTasks[0]
+          const { error } = await supabase
+            .from('items')
+            .delete()
+            .eq('id', task.id)
+
+          if (error) {
+            confirmationMsg = `Failed to delete task: ${error.message}`
+          } else {
+            confirmationMsg = `Deleted "${task.title}"`
+          }
+        }
+
+        await logSMS(supabase, {
+          twilio_sid: messageSid,
+          from_number: from,
+          body: body,
+          parsed_result: parsed,
+          items_created: 0,
+        })
+        break
+      }
+
+      // ============ CREATE ACTION (default) ============
+      case 'create':
+      default: {
+        const items = parsed.items || [parsed]
+
+        if (!Array.isArray(items) || items.length === 0) {
+          console.error('No items in parsed result:', parsed)
+          await logSMS(supabase, {
+            twilio_sid: messageSid,
+            from_number: from,
+            body: body,
+            parsed_result: parsed,
+            error: 'No items found in parsed result',
+          })
+          confirmationMsg = "Sorry, I couldn't find any tasks or events in your message."
+          break
+        }
+
+        const createdItems: Array<{ id: string; type: string; title: string }> = []
+        const failedItems: string[] = []
+        const isChain = parsed.is_chain === true
+        let hasRecurringSuggestion = false
+
+        for (const item of items) {
+          if (!item.type || !item.title) {
+            console.warn('Skipping invalid item:', item)
+            failedItems.push(`Invalid item: missing type or title`)
+            continue
+          }
+
+          let categoryId = null
+          if (item.category_hint && categories) {
+            const matchedCategory = categories.find(
+              (c: { id: string; name: string }) => c.name.toLowerCase() === item.category_hint.toLowerCase()
+            )
+            categoryId = matchedCategory?.id || null
+          }
+
+          const itemData: Record<string, unknown> = {
+            type: item.type,
+            title: item.title,
+            description: item.description || null,
+            category_id: categoryId,
+            source: 'sms',
+            raw_sms: body,
+          }
+
+          if (item.type === 'task' && item.due_date) {
+            itemData.due_date = item.due_date
+          } else if (item.type === 'event') {
+            if (item.start_time) itemData.start_time = item.start_time
+            if (item.end_time) itemData.end_time = item.end_time
+          }
+
+          // Check for recurring suggestion
+          if (item.suggested_recurring) {
+            hasRecurringSuggestion = true
+            // Store recurring pattern (will be used when we add recurring support)
+            itemData.recurring_pattern = item.suggested_recurring
+          }
+
+          console.log('Creating item:', itemData)
+
+          const { data: newItem, error: itemError } = await supabase
+            .from('items')
+            .insert(itemData)
+            .select()
+            .single()
+
+          if (itemError) {
+            console.error('Error creating item:', itemError)
+            failedItems.push(`Failed to create "${item.title}": ${itemError.message}`)
+            continue
+          }
+
+          console.log('Created item:', newItem.id, newItem.title)
+          createdItems.push({ id: newItem.id, type: item.type, title: item.title })
+        }
+
+        // Create task chain dependencies if needed
+        if (isChain && createdItems.length > 1) {
+          console.log('Creating dependencies for task chain...')
+          for (let i = 1; i < createdItems.length; i++) {
+            const predecessorId = createdItems[i - 1].id
+            const successorId = createdItems[i].id
+
+            const { error: depError } = await supabase
+              .from('dependencies')
+              .insert({
+                predecessor_id: predecessorId,
+                successor_id: successorId,
+              })
+
+            if (depError) {
+              console.error('Failed to create dependency:', depError)
+            } else {
+              console.log(`Created dependency: ${createdItems[i - 1].title} -> ${createdItems[i].title}`)
+            }
+          }
+        }
+
+        await logSMS(supabase, {
+          twilio_sid: messageSid,
+          from_number: from,
+          body: body,
+          parsed_result: parsed,
+          items_created: createdItems.length,
+          error: failedItems.length > 0 ? failedItems.join('; ') : undefined,
+        })
+
+        // Build confirmation message
+        if (createdItems.length === 0) {
+          confirmationMsg = "Sorry, I couldn't create any items from that message."
+          if (failedItems.length > 0) {
+            confirmationMsg += ` Error: ${failedItems[0]}`
+          }
+        } else if (createdItems.length === 1) {
+          const item = createdItems[0]
+          confirmationMsg = `Got it! Created ${item.type}: "${item.title}"`
+          if (hasRecurringSuggestion) {
+            confirmationMsg += " (Tip: This looks recurring - set it up in the app!)"
+          }
+        } else if (isChain) {
+          confirmationMsg = `Got it! Created ${createdItems.length} connected tasks:\n` +
+            createdItems.map((i, idx) => `${idx + 1}. ${i.title}`).join('\n')
+        } else {
+          confirmationMsg = `Got it! Created ${createdItems.length} items:\n` +
+            createdItems.map(i => `- ${i.title}`).join('\n')
+        }
+        break
+      }
     }
 
     console.log('Sending TwiML response:', confirmationMsg)

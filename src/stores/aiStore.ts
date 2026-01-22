@@ -14,8 +14,24 @@ interface TaskInChain {
   category_name?: string
 }
 
+interface SubtaskData {
+  title: string
+  description?: string
+}
+
+interface BatchFilter {
+  status?: 'overdue' | 'due_today' | 'completed' | 'all_pending'
+  category?: string
+  date?: string
+}
+
+interface SuggestedRecurring {
+  frequency: 'daily' | 'weekly' | 'monthly'
+  day?: string
+}
+
 interface ParsedAction {
-  type: 'create_task' | 'create_event' | 'complete_task' | 'delete_task' | 'update_task' | 'create_task_chain' | 'unknown'
+  type: 'create_task' | 'create_event' | 'complete_task' | 'delete_task' | 'update_task' | 'create_task_chain' | 'query' | 'batch' | 'decompose' | 'unknown'
   data?: {
     title?: string
     description?: string
@@ -26,6 +42,18 @@ interface ParsedAction {
     task_identifier?: string
     // For task chains
     tasks?: TaskInChain[]
+    // For queries
+    query_type?: 'due_today' | 'due_this_week' | 'overdue' | 'all_pending' | 'by_category'
+    category_filter?: string
+    // For batch operations
+    operation?: 'reschedule' | 'complete' | 'delete'
+    filter?: BatchFilter
+    reschedule_to?: string
+    // For decomposition
+    original_task?: string
+    subtasks?: SubtaskData[]
+    // For recurring detection
+    suggested_recurring?: SuggestedRecurring
   }
   message?: string
 }
@@ -58,65 +86,150 @@ interface AIState {
   optimizeSchedule: (date: string, scheduledItems: Item[], unscheduledTasks: Item[]) => Promise<OptimizationResult | null>
 }
 
-const SYSTEM_PROMPT = `You are an AI assistant for a task management app called Takt. Your job is to parse natural language input and convert it into structured actions.
+const SYSTEM_PROMPT = `You are an AI assistant for a task management app called Takt. You handle:
+1. Creating tasks and events
+2. Querying existing tasks
+3. Batch operations (reschedule, complete, delete multiple)
+4. Task decomposition (breaking down complex tasks)
+5. Completing, updating, or deleting specific tasks
 
-Available actions:
-1. create_task - Create a new task
-2. create_event - Create a new event (has start/end time)
-3. complete_task - Mark a task as complete
-4. delete_task - Delete a task
-5. update_task - Update an existing task
-6. create_task_chain - Create multiple connected tasks with dependencies (each task depends on the previous one completing first)
+## DETERMINE THE ACTION TYPE
 
-When parsing dates:
-- "today" = current date
-- "tomorrow" = next day
-- "next week" = 7 days from now
-- "next Monday/Tuesday/etc" = the next occurrence of that day
-- Specific dates like "January 15" or "1/15" should be converted to ISO format
+**QUERY** - User is asking about their tasks:
+- "what's due today", "show today's tasks", "what do I have today"
+- "what's overdue", "show overdue tasks"
+- "what's due this week", "this week's schedule"
+- "show my tasks", "what's on my plate"
+- "what's in Work category", "show personal tasks"
 
-Response format (JSON only, no markdown):
+**CREATE** - User wants to add tasks/events:
+- "remind me to", "add task", "create", "schedule", "need to"
+- Use create_task for tasks, create_event for time-specific items
 
-For single actions:
+**BATCH** - User wants bulk operations:
+- "reschedule all overdue to tomorrow"
+- "move everything from today to monday"
+- "complete all home tasks"
+- "delete all completed tasks"
+
+**DECOMPOSE** - User wants to break down a task:
+- "break down [task]", "decompose [task]", "split [task] into subtasks"
+- "what steps for [task]", "help me plan [task]"
+
+**COMPLETE/DELETE/UPDATE** - Single task operations:
+- "mark [task] done", "complete [task]"
+- "delete [task]", "remove [task]"
+- "change [task] to...", "update [task]"
+
+## RESPONSE FORMAT (JSON only, no markdown)
+
+### For QUERY:
 {
-  "type": "create_task" | "create_event" | "complete_task" | "delete_task" | "update_task" | "unknown",
+  "type": "query",
   "data": {
-    "title": "task title",
-    "description": "optional description",
-    "due_date": "YYYY-MM-DD" (for tasks),
-    "start_time": "YYYY-MM-DDTHH:MM:SS" (for events),
-    "end_time": "YYYY-MM-DDTHH:MM:SS" (for events),
-    "category_name": "optional category name like Work, Personal, Home",
-    "task_identifier": "for complete/delete/update - part of task title to identify it"
+    "query_type": "due_today" | "due_this_week" | "overdue" | "all_pending" | "by_category",
+    "category_filter": "Work" (optional, for by_category)
   },
-  "message": "friendly confirmation message to show the user"
+  "message": "Let me check your tasks..."
 }
 
-For task chains (multiple connected tasks):
+### For CREATE (task or event):
+{
+  "type": "create_task" | "create_event",
+  "data": {
+    "title": "Task title",
+    "description": "Optional description",
+    "due_date": "YYYY-MM-DD" (tasks only),
+    "start_time": "YYYY-MM-DDTHH:MM:SS" (events only),
+    "end_time": "YYYY-MM-DDTHH:MM:SS" (events only),
+    "category_name": "Work/Personal/Home/Health/Finance",
+    "suggested_recurring": { "frequency": "weekly", "day": "monday" } | null
+  },
+  "message": "Creating task..."
+}
+
+### For TASK CHAINS:
 {
   "type": "create_task_chain",
   "data": {
     "tasks": [
       { "title": "First task" },
-      { "title": "Second task (depends on first)" },
-      { "title": "Third task (depends on second)" }
+      { "title": "Second task" },
+      { "title": "Third task" }
     ],
-    "category_name": "optional - applies to all tasks"
+    "category_name": "optional"
   },
-  "message": "Created X connected tasks with dependencies"
+  "message": "Created X connected tasks"
 }
 
-Examples:
-- "remind me to call mom tomorrow" -> create_task with title "Call mom" and due_date tomorrow
-- "meeting with John on Friday at 2pm" -> create_event with title "Meeting with John" and start_time
-- "mark buy groceries as done" -> complete_task with task_identifier "buy groceries"
-- "schedule dentist appointment next Tuesday 10am to 11am" -> create_event
-- "add a work task: review quarterly report by end of week" -> create_task with category_name "Work"
-- Multi-line lists of tasks with phrases like "connected tasks", "in order", "each depends on the previous", "task chain", or "sequential tasks" -> create_task_chain
+### For BATCH:
+{
+  "type": "batch",
+  "data": {
+    "operation": "reschedule" | "complete" | "delete",
+    "filter": {
+      "status": "overdue" | "due_today" | "completed" | "all_pending",
+      "category": "Work" | null
+    },
+    "reschedule_to": "YYYY-MM-DD" (for reschedule only)
+  },
+  "message": "I'll move all overdue tasks to tomorrow"
+}
 
-When you see a list of items (one per line) with language suggesting they should be connected/sequential/dependent, use create_task_chain and preserve the order as-is. The first task in the list becomes the first in the chain, and each subsequent task depends on the one before it.
+### For DECOMPOSE:
+{
+  "type": "decompose",
+  "data": {
+    "original_task": "The task to break down",
+    "subtasks": [
+      { "title": "Step 1" },
+      { "title": "Step 2" },
+      { "title": "Step 3" }
+    ],
+    "category_name": "Work"
+  },
+  "message": "Here's how I'd break that down..."
+}
 
-Always respond with valid JSON only. No explanation text outside the JSON.`
+### For COMPLETE/DELETE/UPDATE:
+{
+  "type": "complete_task" | "delete_task" | "update_task",
+  "data": {
+    "task_identifier": "partial title to match",
+    "title": "new title (for update)",
+    "due_date": "new date (for update)"
+  },
+  "message": "Completing task..."
+}
+
+## RECURRING DETECTION
+When creating, detect recurring patterns:
+- "weekly standup" -> suggested_recurring: { frequency: "weekly" }
+- "daily medication" -> suggested_recurring: { frequency: "daily" }
+- "every monday" -> suggested_recurring: { frequency: "weekly", day: "monday" }
+
+## DECOMPOSITION GUIDELINES
+When decomposing, create 3-7 actionable subtasks:
+- "Plan vacation" -> Research destinations, Set budget, Book flights, Book hotel, Plan activities
+- "Launch product" -> Finalize features, QA testing, Marketing prep, Deploy, Announce
+
+## DATE PARSING
+- "today" = current date
+- "tomorrow" = next day
+- "next week" = 7 days from now
+- "next Monday" = coming Monday
+
+## EXAMPLES
+
+"what's due today" -> query with query_type: "due_today"
+"show overdue tasks" -> query with query_type: "overdue"
+"reschedule all overdue to tomorrow" -> batch with operation: "reschedule", filter: { status: "overdue" }
+"break down plan vacation" -> decompose with subtasks
+"weekly team standup mondays at 10am" -> create_event with suggested_recurring
+"remind me to call mom tomorrow" -> create_task
+"mark grocery shopping done" -> complete_task
+
+Always respond with valid JSON only.`
 
 export const useAIStore = create<AIState>()(
   persist(
@@ -192,6 +305,159 @@ export const useAIStore = create<AIState>()(
 
         try {
           switch (action.type) {
+            // ============ QUERY ACTION ============
+            case 'query': {
+              const queryType = action.data?.query_type
+              const items = itemStore.items
+              const today = getTodayString()
+              let results: Item[] = []
+
+              if (queryType === 'due_today') {
+                results = items.filter(
+                  (item) => !item.completed && (item.due_date === today || item.start_time?.startsWith(today))
+                )
+              } else if (queryType === 'due_this_week') {
+                const weekEnd = new Date()
+                weekEnd.setDate(weekEnd.getDate() + 7)
+                const weekEndStr = weekEnd.toISOString().split('T')[0]
+                results = items.filter(
+                  (item) => !item.completed && item.due_date && item.due_date >= today && item.due_date <= weekEndStr
+                )
+              } else if (queryType === 'overdue') {
+                results = items.filter(
+                  (item) => !item.completed && item.type === 'task' && item.due_date && item.due_date < today
+                )
+              } else if (queryType === 'all_pending') {
+                results = items.filter((item) => !item.completed)
+              } else if (queryType === 'by_category' && action.data?.category_filter) {
+                const cat = categoryStore.categories.find(
+                  (c) => c.name.toLowerCase() === action.data!.category_filter!.toLowerCase()
+                )
+                if (cat) {
+                  results = items.filter((item) => !item.completed && item.category_id === cat.id)
+                }
+              }
+
+              // Display results
+              if (results.length === 0) {
+                const msg =
+                  queryType === 'overdue'
+                    ? 'Great news! You have no overdue tasks.'
+                    : queryType === 'due_today'
+                      ? 'You have nothing due today!'
+                      : 'No tasks found matching that query.'
+                toast.info(msg)
+              } else {
+                const header =
+                  queryType === 'overdue'
+                    ? `${results.length} overdue task${results.length > 1 ? 's' : ''}`
+                    : queryType === 'due_today'
+                      ? `${results.length} due today`
+                      : queryType === 'due_this_week'
+                        ? `${results.length} this week`
+                        : `${results.length} task${results.length > 1 ? 's' : ''}`
+                const taskList = results
+                  .slice(0, 5)
+                  .map((t) => t.title)
+                  .join(', ')
+                toast.info(`${header}: ${taskList}${results.length > 5 ? '...' : ''}`)
+              }
+              return true
+            }
+
+            // ============ BATCH ACTION ============
+            case 'batch': {
+              const operation = action.data?.operation
+              const filter = action.data?.filter
+              const today = getTodayString()
+              let matchingItems: Item[] = itemStore.items
+
+              // Apply filters
+              if (filter?.status === 'overdue') {
+                matchingItems = matchingItems.filter(
+                  (item) => !item.completed && item.type === 'task' && item.due_date && item.due_date < today
+                )
+              } else if (filter?.status === 'due_today') {
+                matchingItems = matchingItems.filter((item) => !item.completed && item.due_date === today)
+              } else if (filter?.status === 'completed') {
+                matchingItems = matchingItems.filter((item) => item.completed)
+              } else if (filter?.status === 'all_pending') {
+                matchingItems = matchingItems.filter((item) => !item.completed)
+              }
+
+              if (filter?.category) {
+                const cat = categoryStore.categories.find(
+                  (c) => c.name.toLowerCase() === filter.category!.toLowerCase()
+                )
+                if (cat) {
+                  matchingItems = matchingItems.filter((item) => item.category_id === cat.id)
+                }
+              }
+
+              if (matchingItems.length === 0) {
+                toast.info('No tasks match that criteria')
+                return false
+              }
+
+              if (operation === 'reschedule' && action.data?.reschedule_to) {
+                for (const item of matchingItems) {
+                  await itemStore.updateItem(item.id, { due_date: action.data.reschedule_to })
+                }
+                toast.success(`Rescheduled ${matchingItems.length} task${matchingItems.length > 1 ? 's' : ''} to ${action.data.reschedule_to}`)
+              } else if (operation === 'complete') {
+                for (const item of matchingItems) {
+                  if (!item.completed) {
+                    await itemStore.toggleComplete(item.id)
+                  }
+                }
+                toast.success(`Completed ${matchingItems.length} task${matchingItems.length > 1 ? 's' : ''}!`)
+              } else if (operation === 'delete') {
+                for (const item of matchingItems) {
+                  await itemStore.deleteItem(item.id)
+                }
+                toast.success(`Deleted ${matchingItems.length} item${matchingItems.length > 1 ? 's' : ''}`)
+              }
+              return true
+            }
+
+            // ============ DECOMPOSE ACTION ============
+            case 'decompose': {
+              const subtasks = action.data?.subtasks
+              if (!subtasks || subtasks.length === 0) {
+                toast.error("Couldn't break that task down. Try being more specific.")
+                return false
+              }
+
+              const categoryId = action.data?.category_name
+                ? categoryStore.categories.find(
+                    (c) => c.name.toLowerCase() === action.data!.category_name!.toLowerCase()
+                  )?.id
+                : undefined
+
+              const createdIds: string[] = []
+
+              for (const subtask of subtasks) {
+                const newItem = await itemStore.createItem({
+                  type: 'task',
+                  title: subtask.title,
+                  description: subtask.description || `Part of: ${action.data?.original_task}`,
+                  category_id: categoryId,
+                })
+
+                if (newItem) {
+                  createdIds.push(newItem.id)
+                  // Create dependency chain
+                  if (createdIds.length > 1) {
+                    await itemStore.addDependency(createdIds[createdIds.length - 2], newItem.id)
+                  }
+                }
+              }
+
+              toast.success(`Broke "${action.data?.original_task}" into ${createdIds.length} connected subtasks`)
+              return true
+            }
+
+            // ============ CREATE TASK ============
             case 'create_task': {
               const categoryId = action.data?.category_name
                 ? categoryStore.categories.find(
@@ -206,9 +472,15 @@ export const useAIStore = create<AIState>()(
                 due_date: action.data?.due_date,
                 category_id: categoryId,
               })
+
+              // Notify about recurring suggestion
+              if (action.data?.suggested_recurring) {
+                toast.info(`Tip: "${action.data.title}" looks recurring. Set up recurrence in task details!`)
+              }
               return true
             }
 
+            // ============ CREATE EVENT ============
             case 'create_event': {
               const categoryId = action.data?.category_name
                 ? categoryStore.categories.find(
@@ -224,9 +496,14 @@ export const useAIStore = create<AIState>()(
                 end_time: action.data?.end_time,
                 category_id: categoryId,
               })
+
+              if (action.data?.suggested_recurring) {
+                toast.info(`Tip: "${action.data.title}" looks recurring. Set up recurrence in event details!`)
+              }
               return true
             }
 
+            // ============ COMPLETE TASK ============
             case 'complete_task': {
               const identifier = action.data?.task_identifier?.toLowerCase()
               if (!identifier) {
@@ -250,6 +527,7 @@ export const useAIStore = create<AIState>()(
               }
             }
 
+            // ============ DELETE TASK ============
             case 'delete_task': {
               const identifier = action.data?.task_identifier?.toLowerCase()
               if (!identifier) {
@@ -270,6 +548,7 @@ export const useAIStore = create<AIState>()(
               }
             }
 
+            // ============ UPDATE TASK ============
             case 'update_task': {
               const identifier = action.data?.task_identifier?.toLowerCase()
               if (!identifier) {
@@ -296,6 +575,7 @@ export const useAIStore = create<AIState>()(
               }
             }
 
+            // ============ CREATE TASK CHAIN ============
             case 'create_task_chain': {
               const tasks = action.data?.tasks
               if (!tasks || tasks.length === 0) {
@@ -309,7 +589,6 @@ export const useAIStore = create<AIState>()(
                   )?.id
                 : undefined
 
-              // Create tasks and collect their IDs for dependency linking
               const createdTaskIds: string[] = []
 
               for (const taskData of tasks) {
@@ -328,7 +607,6 @@ export const useAIStore = create<AIState>()(
                 if (newItem) {
                   createdTaskIds.push(newItem.id)
 
-                  // Create dependency: this task depends on the previous one
                   if (createdTaskIds.length > 1) {
                     const predecessorId = createdTaskIds[createdTaskIds.length - 2]
                     await itemStore.addDependency(predecessorId, newItem.id)
@@ -342,7 +620,7 @@ export const useAIStore = create<AIState>()(
 
             case 'unknown':
             default:
-              toast.info(action.message || "I didn't understand that. Try something like 'add task call mom tomorrow'")
+              toast.info(action.message || "I didn't understand that. Try 'add task', 'what's due today', or 'break down [task]'")
               return false
           }
         } catch (error) {
