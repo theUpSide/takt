@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { DragDropContext, DropResult } from '@hello-pangea/dnd'
 import { useItemStore } from '@/stores/itemStore'
 import { useAIStore } from '@/stores/aiStore'
@@ -9,6 +9,20 @@ import UnscheduledPanel from './UnscheduledPanel'
 import DateNavigator from './DateNavigator'
 import OptimizationPreview from './OptimizationPreview'
 import clsx from 'clsx'
+
+// Hook to detect mobile viewport
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(false)
+
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 768)
+    checkMobile()
+    window.addEventListener('resize', checkMobile)
+    return () => window.removeEventListener('resize', checkMobile)
+  }, [])
+
+  return isMobile
+}
 
 interface ScheduleSuggestion {
   item_id: string
@@ -25,6 +39,8 @@ export default function DailyPlannerView() {
   const [selectedDate, setSelectedDate] = useState(() => getTodayString())
   const [isOptimizing, setIsOptimizing] = useState(false)
   const [optimizationPreview, setOptimizationPreview] = useState<OptimizationResult | null>(null)
+  const [unscheduledExpanded, setUnscheduledExpanded] = useState(false)
+  const isMobile = useIsMobile()
 
   const { items, getItemsForDate, getUnscheduledTasks, scheduleItem, unscheduleItem } = useItemStore()
   const { optimizeSchedule, apiKey } = useAIStore()
@@ -153,9 +169,9 @@ export default function DailyPlannerView() {
 
       {/* Main content */}
       <DragDropContext onDragEnd={handleDragEnd}>
-        <div className="flex flex-1 overflow-hidden">
+        <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
           {/* Time grid - main area */}
-          <div className="flex-1 overflow-auto">
+          <div className="flex-1 overflow-auto min-h-0">
             <TimeGrid
               date={selectedDate}
               items={scheduledItems}
@@ -165,10 +181,13 @@ export default function DailyPlannerView() {
             />
           </div>
 
-          {/* Unscheduled panel - sidebar */}
+          {/* Unscheduled panel - collapsible on mobile, sidebar on desktop */}
           <UnscheduledPanel
             tasks={unscheduledTasks}
             categories={categories}
+            isExpanded={isMobile ? unscheduledExpanded : true}
+            onToggleExpand={() => setUnscheduledExpanded(!unscheduledExpanded)}
+            isMobile={isMobile}
           />
         </div>
       </DragDropContext>

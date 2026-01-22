@@ -5,9 +5,10 @@ import clsx from 'clsx'
 
 interface SidebarProps {
   isOpen: boolean
+  onClose?: () => void
 }
 
-export default function Sidebar({ isOpen }: SidebarProps) {
+export default function Sidebar({ isOpen, onClose }: SidebarProps) {
   const { categories, loading } = useCategoryStore()
   const { filters, setFilters } = useViewStore()
 
@@ -24,15 +25,34 @@ export default function Sidebar({ isOpen }: SidebarProps) {
     setFilters({ category_ids: [] })
   }
 
-  if (!isOpen) {
-    return null
-  }
-
   return (
-    <aside
-      className="w-64 shrink-0 border-r border-theme-border-primary bg-theme-bg-primary transition-theme animate-slide-in-right"
-      style={{ background: 'var(--sidebar-gradient)' }}
-    >
+    <>
+      {/* Mobile backdrop overlay */}
+      {isOpen && (
+        <div
+          className="fixed inset-0 z-30 bg-black/50 md:hidden"
+          onClick={onClose}
+          aria-hidden="true"
+        />
+      )}
+
+      {/* Sidebar */}
+      <aside
+        className={clsx(
+          // Mobile: fixed drawer from left
+          'fixed inset-y-0 left-0 z-40 md:static md:z-0',
+          // Width: full on mobile (max 280px), fixed on desktop
+          'w-full max-w-[280px] md:w-64 md:max-w-none',
+          // Slide transition
+          'transform transition-transform duration-300 ease-in-out',
+          isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0 md:hidden',
+          // Desktop: hide when closed (keep mobile behavior via translate)
+          !isOpen && 'md:!hidden',
+          // Base styles
+          'shrink-0 border-r border-theme-border-primary bg-theme-bg-primary transition-theme'
+        )}
+        style={{ background: 'var(--sidebar-gradient)' }}
+      >
       <div className="flex h-full flex-col">
         {/* Search */}
         <div className="p-4">
@@ -143,5 +163,6 @@ export default function Sidebar({ isOpen }: SidebarProps) {
         </div>
       </div>
     </aside>
+    </>
   )
 }

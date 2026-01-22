@@ -50,7 +50,7 @@ export default function KanbanView() {
 
   return (
     <DragDropContext onDragEnd={handleDragEnd}>
-      <div className="flex h-full gap-4 overflow-x-auto pb-4">
+      <div className="flex h-full gap-3 md:gap-4 overflow-x-auto pb-4 snap-x snap-mandatory md:snap-none">
         {/* Category columns */}
         {categories.map((category, index) => (
           <KanbanColumn
@@ -99,7 +99,7 @@ function KanbanColumn({ category, items, index }: KanbanColumnProps) {
 
   return (
     <div
-      className="flex w-72 shrink-0 flex-col rounded-xl bg-theme-bg-tertiary border border-theme-border-primary transition-theme animate-fade-in-up"
+      className="flex w-[85vw] min-w-[85vw] md:w-72 md:min-w-0 shrink-0 snap-center md:snap-align-none flex-col rounded-xl bg-theme-bg-tertiary border border-theme-border-primary transition-theme animate-fade-in-up"
       style={{
         animationDelay: `${index * 50}ms`,
         background: 'var(--card-gradient)',

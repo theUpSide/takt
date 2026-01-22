@@ -6,9 +6,12 @@ import clsx from 'clsx'
 interface UnscheduledPanelProps {
   tasks: Item[]
   categories: Category[]
+  isExpanded?: boolean
+  onToggleExpand?: () => void
+  isMobile?: boolean
 }
 
-export default function UnscheduledPanel({ tasks, categories }: UnscheduledPanelProps) {
+export default function UnscheduledPanel({ tasks, categories, isExpanded = true, onToggleExpand, isMobile = false }: UnscheduledPanelProps) {
   const [searchFilter, setSearchFilter] = useState('')
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null)
 
@@ -37,75 +40,110 @@ export default function UnscheduledPanel({ tasks, categories }: UnscheduledPanel
   }
 
   return (
-    <div className="w-72 shrink-0 border-l border-theme-border-primary bg-theme-bg-secondary flex flex-col">
-      {/* Header */}
-      <div className="p-3 border-b border-theme-border-primary">
-        <h3 className="text-sm font-semibold text-theme-text-primary mb-2">
-          To Schedule
-          <span className="ml-2 text-theme-text-muted font-normal">
-            ({filteredTasks.length})
-          </span>
-        </h3>
-
-        {/* Search */}
-        <div className="relative mb-2">
-          <svg
-            className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-theme-text-muted"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-            />
-          </svg>
-          <input
-            type="text"
-            placeholder="Filter tasks..."
-            value={searchFilter}
-            onChange={(e) => setSearchFilter(e.target.value)}
-            className="w-full rounded-md border border-theme-border-primary bg-theme-bg-primary pl-8 pr-3 py-1.5 text-sm text-theme-text-primary placeholder:text-theme-text-muted focus:outline-none focus:ring-2 focus:ring-theme-accent-primary focus:border-transparent"
-          />
-        </div>
-
-        {/* Category filter */}
-        <div className="flex flex-wrap gap-1">
-          <button
-            onClick={() => setCategoryFilter(null)}
-            className={clsx(
-              'px-2 py-0.5 rounded text-xs font-medium transition-all-fast',
-              categoryFilter === null
-                ? 'bg-theme-accent-primary text-white'
-                : 'bg-theme-bg-tertiary text-theme-text-secondary hover:bg-theme-bg-hover'
-            )}
-          >
-            All
-          </button>
-          {categories.map(cat => (
-            <button
-              key={cat.id}
-              onClick={() => setCategoryFilter(cat.id)}
+    <div className={clsx(
+      'shrink-0 border-theme-border-primary bg-theme-bg-secondary flex flex-col',
+      // Mobile: full width, border-top, collapsible height
+      'w-full border-t md:border-t-0 md:border-l md:w-72',
+      // Mobile collapsed: show only header
+      isMobile && !isExpanded && 'max-h-14',
+      // Mobile expanded: take remaining space
+      isMobile && isExpanded && 'flex-1 min-h-[200px]'
+    )}>
+      {/* Header - clickable on mobile to toggle */}
+      <div
+        className={clsx(
+          'p-3 border-b border-theme-border-primary',
+          isMobile && 'cursor-pointer active:bg-theme-bg-hover'
+        )}
+        onClick={isMobile ? onToggleExpand : undefined}
+      >
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-theme-text-primary">
+            To Schedule
+            <span className="ml-2 text-theme-text-muted font-normal">
+              ({filteredTasks.length})
+            </span>
+          </h3>
+          {/* Mobile expand/collapse indicator */}
+          {isMobile && (
+            <svg
               className={clsx(
-                'px-2 py-0.5 rounded text-xs font-medium transition-all-fast flex items-center gap-1',
-                categoryFilter === cat.id
-                  ? 'bg-theme-accent-primary text-white'
-                  : 'bg-theme-bg-tertiary text-theme-text-secondary hover:bg-theme-bg-hover'
+                'h-4 w-4 text-theme-text-muted transition-transform',
+                isExpanded && 'rotate-180'
               )}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
             >
-              <div
-                className="h-2 w-2 rounded-full"
-                style={{ backgroundColor: cat.color }}
-              />
-              {cat.name}
-            </button>
-          ))}
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+            </svg>
+          )}
         </div>
+
+        {/* Search - hidden when collapsed on mobile */}
+        {(!isMobile || isExpanded) && (
+          <>
+            <div className="relative mb-2 mt-2">
+              <svg
+                className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-theme-text-muted"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                />
+              </svg>
+              <input
+                type="text"
+                placeholder="Filter tasks..."
+                value={searchFilter}
+                onChange={(e) => setSearchFilter(e.target.value)}
+                className="w-full rounded-md border border-theme-border-primary bg-theme-bg-primary pl-8 pr-3 py-1.5 text-sm text-theme-text-primary placeholder:text-theme-text-muted focus:outline-none focus:ring-2 focus:ring-theme-accent-primary focus:border-transparent"
+              />
+            </div>
+
+            {/* Category filter */}
+            <div className="flex flex-wrap gap-1">
+              <button
+                onClick={() => setCategoryFilter(null)}
+                className={clsx(
+                  'px-2 py-0.5 rounded text-xs font-medium transition-all-fast',
+                  categoryFilter === null
+                    ? 'bg-theme-accent-primary text-white'
+                    : 'bg-theme-bg-tertiary text-theme-text-secondary hover:bg-theme-bg-hover'
+                )}
+              >
+                All
+              </button>
+              {categories.map(cat => (
+                <button
+                  key={cat.id}
+                  onClick={() => setCategoryFilter(cat.id)}
+                  className={clsx(
+                    'px-2 py-0.5 rounded text-xs font-medium transition-all-fast flex items-center gap-1',
+                    categoryFilter === cat.id
+                      ? 'bg-theme-accent-primary text-white'
+                      : 'bg-theme-bg-tertiary text-theme-text-secondary hover:bg-theme-bg-hover'
+                  )}
+                >
+                  <div
+                    className="h-2 w-2 rounded-full"
+                    style={{ backgroundColor: cat.color }}
+                  />
+                  {cat.name}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
       </div>
 
-      {/* Task list */}
+      {/* Task list - hidden when collapsed on mobile */}
+      {(!isMobile || isExpanded) && (
       <Droppable droppableId="unscheduled">
         {(provided, snapshot) => (
           <div
@@ -201,6 +239,7 @@ export default function UnscheduledPanel({ tasks, categories }: UnscheduledPanel
           </div>
         )}
       </Droppable>
+      )}
     </div>
   )
 }

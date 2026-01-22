@@ -10,6 +10,7 @@ import ItemModal from '@/components/Items/ItemModal'
 
 export default function Layout() {
   const sidebarOpen = useViewStore((state) => state.sidebarOpen)
+  const setSidebarOpen = useViewStore((state) => state.setSidebarOpen)
   const { fetchItems, fetchDependencies, subscribeToChanges: subscribeItems } = useItemStore()
   const { fetchCategories, subscribeToChanges: subscribeCategories } = useCategoryStore()
   const theme = useThemeStore((state) => state.theme)
@@ -41,8 +42,8 @@ export default function Layout() {
     <div className="flex h-screen flex-col bg-theme-bg-secondary transition-theme">
       <Header />
       <div className="flex flex-1 overflow-hidden">
-        <Sidebar isOpen={sidebarOpen} />
-        <main className="flex-1 overflow-auto p-6 animate-fade-in">
+        <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+        <main className="flex-1 overflow-auto p-4 md:p-6 animate-fade-in">
           <Outlet />
         </main>
       </div>

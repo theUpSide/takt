@@ -150,6 +150,9 @@ export default function ListView() {
     getCoreRowModel: getCoreRowModel(),
   })
 
+  // Columns to hide on mobile
+  const mobileHiddenColumns = ['category', 'source', 'type']
+
   const renderTableHeader = (table: ReturnType<typeof useReactTable<Item>>) => (
     <thead>
       {table.getHeaderGroups().map((headerGroup) => (
@@ -159,8 +162,10 @@ export default function ListView() {
               key={header.id}
               onClick={header.column.getToggleSortingHandler()}
               className={clsx(
-                'px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-theme-text-muted',
-                header.column.getCanSort() && 'cursor-pointer select-none hover:text-theme-accent-primary transition-all-fast'
+                'px-2 md:px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-theme-text-muted',
+                header.column.getCanSort() && 'cursor-pointer select-none hover:text-theme-accent-primary transition-all-fast',
+                // Hide certain columns on mobile
+                mobileHiddenColumns.includes(header.id) && 'hidden md:table-cell'
               )}
               style={{ width: header.getSize() !== 150 ? header.getSize() : undefined }}
             >
@@ -196,7 +201,14 @@ export default function ListView() {
             style={{ animationDelay: `${(startIndex + index) * 30}ms` }}
           >
             {row.getVisibleCells().map((cell) => (
-              <td key={cell.id} className="px-4 py-3 text-sm text-theme-text-primary">
+              <td
+                key={cell.id}
+                className={clsx(
+                  'px-2 md:px-4 py-3 text-sm text-theme-text-primary min-h-[44px]',
+                  // Hide certain columns on mobile
+                  mobileHiddenColumns.includes(cell.column.id) && 'hidden md:table-cell'
+                )}
+              >
                 {flexRender(cell.column.columnDef.cell, cell.getContext())}
               </td>
             ))}
