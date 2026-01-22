@@ -40,6 +40,12 @@ First, identify what the user wants:
 - "break down [task]", "decompose [task]", "split [task] into subtasks"
 - "what steps for [task]", "help me plan [task]"
 
+**TASK_GRAPH** - User provides a structured task list with dependencies:
+- Tables with columns like ID, Task, Predecessor(s)
+- Project plans with explicit dependency notation (e.g., "depends on 1, 3")
+- WBS (Work Breakdown Structure) with predecessor columns
+- Any multi-task list where tasks reference other tasks by ID/number
+
 **COMPLETE** - User wants to mark task(s) done:
 - "mark [task] done", "complete [task]", "finished [task]", "done with [task]"
 
@@ -116,6 +122,46 @@ Return ONLY valid JSON based on action type:
   "message": "Removing task..."
 }
 
+### For TASK_GRAPH (complex dependencies):
+{
+  "action": "task_graph",
+  "project_title": "Project Name" | null,
+  "project_description": "Brief project description" | null,
+  "tasks": [
+    {
+      "temp_id": "1",
+      "title": "First task",
+      "description": "Optional notes" | null,
+      "predecessors": []
+    },
+    {
+      "temp_id": "2",
+      "title": "Second task depends on first",
+      "description": null,
+      "predecessors": ["1"]
+    },
+    {
+      "temp_id": "3",
+      "title": "Third task depends on multiple",
+      "description": null,
+      "predecessors": ["1", "2"]
+    }
+  ],
+  "category_hint": "Work" | null,
+  "message": "Created X tasks with dependencies"
+}
+
+IMPORTANT for task_graph:
+- If the input looks like a project plan (has a title, multiple related tasks), extract project_title
+- project_title groups all tasks under a project with its own Gantt section
+- temp_id is a string identifier used ONLY for linking predecessors
+- predecessors is an array of temp_ids that this task depends on
+- Tasks with no predecessors have an empty array: "predecessors": []
+- Extract temp_ids from table ID columns, row numbers, or explicit references
+- Parse "depends on 1, 3" as predecessors: ["1", "3"]
+- Parse "1, 2" in a Predecessor column as predecessors: ["1", "2"]
+- Parse "—" or empty predecessor cells as predecessors: []
+
 ## RECURRING TASK DETECTION
 When creating tasks, detect recurring patterns:
 - "weekly standup" -> suggested_recurring: { frequency: "weekly" }
@@ -135,6 +181,13 @@ When decomposing, create 3-7 logical subtasks:
 - "next week" = 7 days from now
 - "next Monday" = coming Monday
 - "end of week" = Friday
+
+## CRITICAL: ALWAYS SET DATES
+**EVERY task MUST have a due_date. EVERY event MUST have start_time and end_time.**
+- If the user doesn't specify a date, default to TODAY's date
+- If the user says "sometime" or is vague, use TODAY
+- Never leave due_date as null for tasks
+- Never leave start_time as null for events (default to a reasonable time like 09:00)
 
 ## EXAMPLES
 
@@ -164,6 +217,9 @@ Output: {"action":"complete","task_identifier":"buy groceries","message":"Markin
 
 Input: "create connected tasks: design mockups, get feedback, implement changes"
 Output: {"action":"create","is_chain":true,"items":[{"type":"task","title":"Design mockups","description":null,"due_date":null,"start_time":null,"end_time":null,"category_hint":"Work","suggested_recurring":null},{"type":"task","title":"Get feedback","description":null,"due_date":null,"start_time":null,"end_time":null,"category_hint":"Work","suggested_recurring":null},{"type":"task","title":"Implement changes","description":null,"due_date":null,"start_time":null,"end_time":null,"category_hint":"Work","suggested_recurring":null}]}
+
+Input: "| ID | Task | Predecessor(s) |\n| 1 | Design | — |\n| 2 | Review | 1 |\n| 3 | Implement | 1, 2 |"
+Output: {"action":"task_graph","tasks":[{"temp_id":"1","title":"Design","description":null,"predecessors":[]},{"temp_id":"2","title":"Review","description":null,"predecessors":["1"]},{"temp_id":"3","title":"Implement","description":null,"predecessors":["1","2"]}],"category_hint":"Work","message":"Created 3 tasks with dependencies"}
 
 ## CRITICAL RULES
 - ALWAYS determine the correct action type first
@@ -610,7 +666,7 @@ Use these EXACT dates when the user mentions relative days.`
           categoryId = cat?.id || null
         }
 
-        // Create subtasks as a chain
+        // Create subtasks as a chain - all due today for Gantt visibility
         for (const subtask of subtasks) {
           const { data: newItem, error } = await supabase
             .from('items')
@@ -618,6 +674,7 @@ Use these EXACT dates when the user mentions relative days.`
               type: 'task',
               title: subtask.title,
               description: subtask.description || `Part of: ${parsed.original_task}`,
+              due_date: dateInfo.today, // Default to today for Gantt visibility
               category_id: categoryId,
               source: 'sms',
               raw_sms: body,
@@ -736,6 +793,150 @@ Use these EXACT dates when the user mentions relative days.`
         break
       }
 
+      // ============ TASK_GRAPH ACTION ============
+      case 'task_graph': {
+        const tasks = parsed.tasks || []
+        if (tasks.length === 0) {
+          confirmationMsg = "I couldn't parse any tasks from that input."
+          break
+        }
+
+        // Find category
+        let categoryId = null
+        if (parsed.category_hint && categories) {
+          const cat = categories.find(
+            (c: { id: string; name: string }) => c.name.toLowerCase() === parsed.category_hint.toLowerCase()
+          )
+          categoryId = cat?.id || null
+        }
+
+        // Create project if project_title provided
+        let projectId: string | null = null
+        let projectTitle: string | null = null
+        if (parsed.project_title) {
+          projectTitle = parsed.project_title
+          // We need to get the user from their phone number
+          const { data: userPrefs } = await supabase
+            .from('user_preferences')
+            .select('user_id')
+            .eq('phone', from)
+            .single()
+
+          if (userPrefs?.user_id) {
+            const { data: project, error: projectError } = await supabase
+              .from('projects')
+              .insert({
+                user_id: userPrefs.user_id,
+                title: parsed.project_title,
+                description: parsed.project_description || null,
+                status: 'active',
+              })
+              .select()
+              .single()
+
+            if (!projectError && project) {
+              projectId = project.id
+              console.log(`Created project: ${project.title} (${project.id})`)
+            } else {
+              console.error('Failed to create project:', projectError)
+            }
+          } else {
+            console.warn('Could not find user for phone number:', from)
+          }
+        }
+
+        // Map of temp_id -> actual UUID for dependency linking
+        const tempIdToUuid: Record<string, string> = {}
+        const createdTasks: Array<{ temp_id: string; uuid: string; title: string }> = []
+        const failedTasks: string[] = []
+
+        // First pass: Create all tasks
+        for (const task of tasks) {
+          if (!task.title || !task.temp_id) {
+            console.warn('Skipping task without title or temp_id:', task)
+            failedTasks.push(`Invalid task: ${JSON.stringify(task).substring(0, 50)}`)
+            continue
+          }
+
+          const { data: newItem, error } = await supabase
+            .from('items')
+            .insert({
+              type: 'task',
+              title: task.title,
+              description: task.description || null,
+              due_date: dateInfo.today, // Default to today for Gantt visibility
+              category_id: categoryId,
+              project_id: projectId, // Assign to project if created
+              source: 'sms',
+              raw_sms: body,
+            })
+            .select()
+            .single()
+
+          if (error) {
+            console.error('Error creating task:', error)
+            failedTasks.push(`Failed to create "${task.title}"`)
+            continue
+          }
+
+          tempIdToUuid[task.temp_id] = newItem.id
+          createdTasks.push({ temp_id: task.temp_id, uuid: newItem.id, title: task.title })
+          console.log(`Created task ${task.temp_id} -> ${newItem.id}: ${task.title}`)
+        }
+
+        // Second pass: Create dependencies
+        let dependenciesCreated = 0
+        for (const task of tasks) {
+          if (!task.predecessors || task.predecessors.length === 0) continue
+
+          const successorId = tempIdToUuid[task.temp_id]
+          if (!successorId) continue
+
+          for (const predTempId of task.predecessors) {
+            const predecessorId = tempIdToUuid[predTempId]
+            if (!predecessorId) {
+              console.warn(`Predecessor ${predTempId} not found for task ${task.temp_id}`)
+              continue
+            }
+
+            const { error: depError } = await supabase
+              .from('dependencies')
+              .insert({
+                predecessor_id: predecessorId,
+                successor_id: successorId,
+              })
+
+            if (depError) {
+              console.error('Error creating dependency:', depError)
+            } else {
+              dependenciesCreated++
+              console.log(`Created dependency: ${predTempId} -> ${task.temp_id}`)
+            }
+          }
+        }
+
+        // Build confirmation message
+        if (createdTasks.length === 0) {
+          confirmationMsg = "Failed to create any tasks from that input."
+        } else {
+          const projectInfo = projectTitle ? `Project "${projectTitle}": ` : ''
+          confirmationMsg = `${projectInfo}Created ${createdTasks.length} tasks with ${dependenciesCreated} dependencies:\n` +
+            createdTasks.slice(0, 8).map((t, i) => `${i + 1}. ${t.title}`).join('\n')
+          if (createdTasks.length > 8) {
+            confirmationMsg += `\n...and ${createdTasks.length - 8} more`
+          }
+        }
+
+        await logSMS(supabase, {
+          twilio_sid: messageSid,
+          from_number: from,
+          body: body,
+          parsed_result: parsed,
+          items_created: createdTasks.length,
+        })
+        break
+      }
+
       // ============ CREATE ACTION (default) ============
       case 'create':
       default: {
@@ -783,11 +984,26 @@ Use these EXACT dates when the user mentions relative days.`
             raw_sms: body,
           }
 
-          if (item.type === 'task' && item.due_date) {
-            itemData.due_date = item.due_date
+          // CRITICAL: Always set dates for Gantt chart visibility
+          if (item.type === 'task') {
+            // Default to today if no due_date provided
+            itemData.due_date = item.due_date || dateInfo.today
           } else if (item.type === 'event') {
-            if (item.start_time) itemData.start_time = item.start_time
-            if (item.end_time) itemData.end_time = item.end_time
+            // Default to today at 9am if no times provided
+            if (item.start_time) {
+              itemData.start_time = item.start_time
+            } else {
+              itemData.start_time = `${dateInfo.today}T09:00:00`
+            }
+            if (item.end_time) {
+              itemData.end_time = item.end_time
+            } else {
+              // Default to 1 hour after start
+              const startTime = itemData.start_time as string
+              const startDate = new Date(startTime)
+              startDate.setHours(startDate.getHours() + 1)
+              itemData.end_time = startDate.toISOString().replace(/\.\d{3}Z$/, '')
+            }
           }
 
           // Check for recurring suggestion

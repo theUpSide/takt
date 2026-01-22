@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware'
 import Anthropic from '@anthropic-ai/sdk'
 import { useItemStore } from './itemStore'
 import { useCategoryStore } from './categoryStore'
+import { useProjectStore } from './projectStore'
 import { useToastStore } from './toastStore'
 import { getTodayString } from '@/lib/dateUtils'
 import type { Item } from '@/types'
@@ -30,8 +31,15 @@ interface SuggestedRecurring {
   day?: string
 }
 
+interface TaskGraphNode {
+  temp_id: string
+  title: string
+  description?: string
+  predecessors: string[]
+}
+
 interface ParsedAction {
-  type: 'create_task' | 'create_event' | 'complete_task' | 'delete_task' | 'update_task' | 'create_task_chain' | 'query' | 'batch' | 'decompose' | 'unknown'
+  type: 'create_task' | 'create_event' | 'complete_task' | 'delete_task' | 'update_task' | 'create_task_chain' | 'create_task_graph' | 'query' | 'batch' | 'decompose' | 'unknown'
   data?: {
     title?: string
     description?: string
@@ -42,6 +50,10 @@ interface ParsedAction {
     task_identifier?: string
     // For task chains
     tasks?: TaskInChain[]
+    // For task graphs with complex dependencies
+    graph_tasks?: TaskGraphNode[]
+    project_title?: string
+    project_description?: string
     // For queries
     query_type?: 'due_today' | 'due_this_week' | 'overdue' | 'all_pending' | 'by_category'
     category_filter?: string
@@ -115,6 +127,12 @@ const SYSTEM_PROMPT = `You are an AI assistant for a task management app called 
 **DECOMPOSE** - User wants to break down a task:
 - "break down [task]", "decompose [task]", "split [task] into subtasks"
 - "what steps for [task]", "help me plan [task]"
+
+**TASK_GRAPH** - User provides a structured task list with dependencies:
+- Tables with columns like ID, Task, Predecessor(s)
+- Project plans with explicit dependency notation (e.g., "depends on 1, 3")
+- WBS (Work Breakdown Structure) with predecessor columns
+- Any multi-task list where tasks reference other tasks by ID/number
 
 **COMPLETE/DELETE/UPDATE** - Single task operations:
 - "mark [task] done", "complete [task]"
@@ -202,6 +220,33 @@ const SYSTEM_PROMPT = `You are an AI assistant for a task management app called 
   "message": "Completing task..."
 }
 
+### For TASK_GRAPH (complex dependencies):
+{
+  "type": "create_task_graph",
+  "data": {
+    "project_title": "Project Name" | null,
+    "project_description": "Brief description" | null,
+    "graph_tasks": [
+      { "temp_id": "1", "title": "First task", "description": null, "predecessors": [] },
+      { "temp_id": "2", "title": "Second task", "description": null, "predecessors": ["1"] },
+      { "temp_id": "3", "title": "Third task depends on both", "description": null, "predecessors": ["1", "2"] }
+    ],
+    "category_name": "Work"
+  },
+  "message": "Created X tasks with dependencies"
+}
+
+IMPORTANT for create_task_graph:
+- If the input looks like a project plan, extract project_title and project_description
+- project_title groups all tasks under a project with its own Gantt section
+- temp_id is a string identifier used ONLY for linking predecessors
+- predecessors is an array of temp_ids that this task depends on
+- Tasks with no predecessors have an empty array: "predecessors": []
+- Extract temp_ids from table ID columns, row numbers, or explicit references
+- Parse "depends on 1, 3" as predecessors: ["1", "3"]
+- Parse "1, 2" in a Predecessor column as predecessors: ["1", "2"]
+- Parse "—" or empty cells as predecessors: []
+
 ## RECURRING DETECTION
 When creating, detect recurring patterns:
 - "weekly standup" -> suggested_recurring: { frequency: "weekly" }
@@ -219,6 +264,14 @@ When decomposing, create 3-7 actionable subtasks:
 - "next week" = 7 days from now
 - "next Monday" = coming Monday
 
+## CRITICAL: ALWAYS SET DATES
+**EVERY task MUST have a due_date. EVERY event MUST have start_time and end_time.**
+- If the user doesn't specify a date, default to TODAY's date
+- If the user says "sometime" or is vague, use TODAY
+- Never leave due_date as null for tasks
+- Never leave start_time as null for events (default to a reasonable time like 09:00)
+- This is essential for the Gantt chart and calendar views to work properly
+
 ## EXAMPLES
 
 "what's due today" -> query with query_type: "due_today"
@@ -228,6 +281,7 @@ When decomposing, create 3-7 actionable subtasks:
 "weekly team standup mondays at 10am" -> create_event with suggested_recurring
 "remind me to call mom tomorrow" -> create_task
 "mark grocery shopping done" -> complete_task
+"| ID | Task | Predecessor |\n| 1 | Design | — |\n| 2 | Review | 1 |" -> create_task_graph with graph_tasks
 
 Always respond with valid JSON only.`
 
@@ -434,6 +488,8 @@ export const useAIStore = create<AIState>()(
                   )?.id
                 : undefined
 
+              // Default subtasks to today for Gantt visibility
+              const today = getTodayString()
               const createdIds: string[] = []
 
               for (const subtask of subtasks) {
@@ -441,6 +497,7 @@ export const useAIStore = create<AIState>()(
                   type: 'task',
                   title: subtask.title,
                   description: subtask.description || `Part of: ${action.data?.original_task}`,
+                  due_date: today,
                   category_id: categoryId,
                 })
 
@@ -465,11 +522,14 @@ export const useAIStore = create<AIState>()(
                   )?.id
                 : undefined
 
+              // CRITICAL: Always set due_date for Gantt chart visibility
+              const today = getTodayString()
+
               await itemStore.createItem({
                 type: 'task',
                 title: action.data?.title || 'New Task',
                 description: action.data?.description,
-                due_date: action.data?.due_date,
+                due_date: action.data?.due_date || today, // Default to today
                 category_id: categoryId,
               })
 
@@ -488,12 +548,28 @@ export const useAIStore = create<AIState>()(
                   )?.id
                 : undefined
 
+              // CRITICAL: Always set times for Gantt chart visibility
+              const today = getTodayString()
+              let startTime = action.data?.start_time
+              let endTime = action.data?.end_time
+
+              if (!startTime) {
+                // Default to 9am today
+                startTime = `${today}T09:00:00`
+              }
+              if (!endTime) {
+                // Default to 1 hour after start
+                const startDate = new Date(startTime)
+                startDate.setHours(startDate.getHours() + 1)
+                endTime = startDate.toISOString().split('.')[0]
+              }
+
               await itemStore.createItem({
                 type: 'event',
                 title: action.data?.title || 'New Event',
                 description: action.data?.description,
-                start_time: action.data?.start_time,
-                end_time: action.data?.end_time,
+                start_time: startTime,
+                end_time: endTime,
                 category_id: categoryId,
               })
 
@@ -589,6 +665,8 @@ export const useAIStore = create<AIState>()(
                   )?.id
                 : undefined
 
+              // Default to today for Gantt visibility
+              const today = getTodayString()
               const createdTaskIds: string[] = []
 
               for (const taskData of tasks) {
@@ -596,7 +674,7 @@ export const useAIStore = create<AIState>()(
                   type: 'task',
                   title: taskData.title,
                   description: taskData.description,
-                  due_date: taskData.due_date,
+                  due_date: taskData.due_date || today, // Default to today
                   category_id: taskData.category_name
                     ? categoryStore.categories.find(
                         (c) => c.name.toLowerCase() === taskData.category_name!.toLowerCase()
@@ -615,6 +693,89 @@ export const useAIStore = create<AIState>()(
               }
 
               toast.success(`Created ${createdTaskIds.length} connected tasks`)
+              return true
+            }
+
+            // ============ CREATE TASK GRAPH ============
+            case 'create_task_graph': {
+              const graphTasks = action.data?.graph_tasks
+              if (!graphTasks || graphTasks.length === 0) {
+                toast.error('No tasks found in the input')
+                return false
+              }
+
+              const categoryId = action.data?.category_name
+                ? categoryStore.categories.find(
+                    (c) => c.name.toLowerCase() === action.data!.category_name!.toLowerCase()
+                  )?.id
+                : undefined
+
+              // Default to today for Gantt visibility
+              const today = getTodayString()
+              const projectStore = useProjectStore.getState()
+
+              // Create project if project_title provided
+              let projectId: string | undefined
+              let projectTitle: string | undefined
+              if (action.data?.project_title) {
+                projectTitle = action.data.project_title
+                const project = await projectStore.createProject({
+                  title: action.data.project_title,
+                  description: action.data.project_description,
+                })
+                if (project) {
+                  projectId = project.id
+                }
+              }
+
+              // Map of temp_id -> actual UUID for dependency linking
+              const tempIdToUuid: Record<string, string> = {}
+              const createdTasks: Array<{ temp_id: string; uuid: string; title: string }> = []
+
+              // First pass: Create all tasks
+              for (const task of graphTasks) {
+                if (!task.title || !task.temp_id) {
+                  console.warn('Skipping task without title or temp_id:', task)
+                  continue
+                }
+
+                const newItem = await itemStore.createItem({
+                  type: 'task',
+                  title: task.title,
+                  description: task.description,
+                  due_date: today,
+                  category_id: categoryId,
+                  project_id: projectId,
+                })
+
+                if (newItem) {
+                  tempIdToUuid[task.temp_id] = newItem.id
+                  createdTasks.push({ temp_id: task.temp_id, uuid: newItem.id, title: task.title })
+                }
+              }
+
+              // Second pass: Create dependencies
+              let dependenciesCreated = 0
+              for (const task of graphTasks) {
+                if (!task.predecessors || task.predecessors.length === 0) continue
+
+                const successorId = tempIdToUuid[task.temp_id]
+                if (!successorId) continue
+
+                for (const predTempId of task.predecessors) {
+                  const predecessorId = tempIdToUuid[predTempId]
+                  if (!predecessorId) {
+                    console.warn(`Predecessor ${predTempId} not found for task ${task.temp_id}`)
+                    continue
+                  }
+
+                  await itemStore.addDependency(predecessorId, successorId)
+                  dependenciesCreated++
+                }
+              }
+
+              const projectInfo = projectTitle ? `Project "${projectTitle}": ` : ''
+              toast.success(`${projectInfo}Created ${createdTasks.length} tasks with ${dependenciesCreated} dependencies`)
               return true
             }
 

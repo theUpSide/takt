@@ -8,6 +8,7 @@ export interface Item {
   title: string
   description: string | null
   category_id: string | null
+  project_id: string | null
   start_time: string | null
   end_time: string | null
   due_date: string | null
@@ -25,6 +26,7 @@ export interface Item {
   duration_minutes: number | null  // How long the task takes (default: 30)
   // Joined relations
   category?: Category | null
+  project?: Project | null
 }
 
 export interface Task extends Item {
@@ -44,6 +46,21 @@ export interface Category {
   name: string
   color: string
   sort_order: number
+  created_at: string
+  updated_at: string
+}
+
+// Project
+export type ProjectStatus = 'active' | 'completed' | 'archived'
+
+export interface Project {
+  id: string
+  user_id: string
+  title: string
+  description: string | null
+  color: string
+  target_date: string | null
+  status: ProjectStatus
   created_at: string
   updated_at: string
 }

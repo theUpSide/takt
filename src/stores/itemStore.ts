@@ -46,7 +46,7 @@ export const useItemStore = create<ItemState>((set, get) => ({
 
     const { data, error } = await supabase
       .from('items')
-      .select('*, category:categories(*)')
+      .select('*, category:categories(*), project:projects(*)')
       .order('created_at', { ascending: false })
 
     if (error) {
@@ -77,6 +77,7 @@ export const useItemStore = create<ItemState>((set, get) => ({
         title: data.title ?? '',
         description: data.description,
         category_id: data.category_id,
+        project_id: data.project_id,
         start_time: data.start_time,
         end_time: data.end_time,
         due_date: data.due_date,
@@ -86,7 +87,7 @@ export const useItemStore = create<ItemState>((set, get) => ({
         scheduled_start: data.scheduled_start,
         duration_minutes: data.duration_minutes ?? 30,
       })
-      .select('*, category:categories(*)')
+      .select('*, category:categories(*), project:projects(*)')
       .single()
 
     if (error) {
