@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { formatDateTime } from '@/lib/dateUtils'
+import { useToastStore } from '@/stores/toastStore'
 import clsx from 'clsx'
 
 interface ParsedItem {
@@ -61,6 +62,76 @@ export default function SMSLogViewer() {
   const [logs, setLogs] = useState<SMSLogEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [phone, setPhone] = useState('')
+  const [savedPhone, setSavedPhone] = useState<string | null>(null)
+  const [phoneLoading, setPhoneLoading] = useState(true)
+  const [phoneSaving, setPhoneSaving] = useState(false)
+  const toast = useToastStore()
+
+  // Fetch user's registered phone on mount
+  useEffect(() => {
+    const fetchPhone = async () => {
+      try {
+        const { data: session } = await supabase.auth.getSession()
+        if (!session?.session?.user) return
+
+        const { data } = await supabase
+          .from('user_preferences')
+          .select('phone')
+          .eq('user_id', session.session.user.id)
+          .single()
+
+        if (data?.phone) {
+          setSavedPhone(data.phone)
+          setPhone(data.phone)
+        }
+      } catch {
+        // No preferences yet, that's fine
+      } finally {
+        setPhoneLoading(false)
+      }
+    }
+    fetchPhone()
+  }, [])
+
+  const handleSavePhone = async () => {
+    setPhoneSaving(true)
+    try {
+      const { data: session } = await supabase.auth.getSession()
+      if (!session?.session?.user) {
+        toast.error('You must be logged in')
+        return
+      }
+
+      // Format phone to E.164 (add +1 if not present)
+      let formattedPhone = phone.replace(/\D/g, '') // Strip non-digits
+      if (formattedPhone.length === 10) {
+        formattedPhone = '+1' + formattedPhone
+      } else if (!formattedPhone.startsWith('+')) {
+        formattedPhone = '+' + formattedPhone
+      }
+
+      // Upsert user_preferences
+      const { error: upsertError } = await supabase
+        .from('user_preferences')
+        .upsert({
+          user_id: session.session.user.id,
+          phone: formattedPhone,
+        }, {
+          onConflict: 'user_id'
+        })
+
+      if (upsertError) throw upsertError
+
+      setSavedPhone(formattedPhone)
+      setPhone(formattedPhone)
+      toast.success('Phone number saved! SMS tasks will now create projects.')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to save phone')
+    } finally {
+      setPhoneSaving(false)
+    }
+  }
 
   useEffect(() => {
     fetchLogs()
@@ -122,6 +193,55 @@ export default function SMSLogViewer() {
 
   return (
     <div className="space-y-6">
+      {/* Phone Registration Section */}
+      <div className="border-b border-theme-border-primary pb-6">
+        <h2 className="text-lg font-semibold text-theme-text-primary mb-1">Your Phone Number</h2>
+        <p className="text-sm text-theme-text-muted mb-4">
+          Register your phone to enable project creation from SMS task graphs.
+        </p>
+
+        {phoneLoading ? (
+          <div className="animate-pulse h-10 bg-theme-bg-tertiary rounded-lg" />
+        ) : (
+          <div className="flex gap-2">
+            <input
+              type="tel"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="+1 555 123 4567"
+              className="flex-1 rounded-lg border border-theme-border-primary bg-theme-bg-secondary px-4 py-2.5 text-theme-text-primary placeholder:text-theme-text-muted focus:border-theme-accent-primary focus:outline-none focus:ring-2 focus:ring-theme-accent-primary/20 transition-all-fast"
+            />
+            <button
+              onClick={handleSavePhone}
+              disabled={phoneSaving || !phone.trim()}
+              className="rounded-lg bg-theme-accent-primary px-4 py-2.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50 transition-all-fast btn-press"
+            >
+              {phoneSaving ? 'Saving...' : 'Save'}
+            </button>
+          </div>
+        )}
+
+        {savedPhone && (
+          <div className="mt-3 rounded-lg border border-theme-accent-success/30 bg-theme-accent-success/10 p-3">
+            <div className="flex items-center gap-2 text-theme-accent-success text-sm">
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+              <span>Phone registered: <strong>{savedPhone}</strong></span>
+            </div>
+            <p className="mt-1 text-xs text-theme-text-muted">
+              Text to your Twilio number to create tasks. Use task tables with dependencies to auto-create projects.
+            </p>
+          </div>
+        )}
+
+        {!savedPhone && !phoneLoading && (
+          <p className="mt-2 text-xs text-theme-accent-warning">
+            Without a registered phone, SMS task graphs won't create projects automatically.
+          </p>
+        )}
+      </div>
+
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold text-theme-text-primary mb-1">SMS Log</h2>

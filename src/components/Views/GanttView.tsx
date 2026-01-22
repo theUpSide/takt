@@ -6,6 +6,62 @@ import { useProjectStore } from '@/stores/projectStore'
 import { getDirectPredecessors } from '@/lib/dependencyUtils'
 import type { Item, Project, Dependency } from '@/types'
 
+// Topological sort: order items so predecessors appear before their dependents
+function topologicalSort(items: Item[], dependencies: Dependency[]): Item[] {
+  const itemIds = new Set(items.map(i => i.id))
+
+  // Build adjacency list (predecessor -> successors) and in-degree count
+  const successors: Record<string, string[]> = {}
+  const inDegree: Record<string, number> = {}
+
+  // Initialize
+  for (const item of items) {
+    successors[item.id] = []
+    inDegree[item.id] = 0
+  }
+
+  // Build graph from dependencies (only for items in this set)
+  for (const dep of dependencies) {
+    if (itemIds.has(dep.predecessor_id) && itemIds.has(dep.successor_id)) {
+      successors[dep.predecessor_id].push(dep.successor_id)
+      inDegree[dep.successor_id]++
+    }
+  }
+
+  // Kahn's algorithm: start with nodes that have no predecessors
+  const queue: string[] = []
+  for (const item of items) {
+    if (inDegree[item.id] === 0) {
+      queue.push(item.id)
+    }
+  }
+
+  const sortedIds: string[] = []
+  while (queue.length > 0) {
+    const id = queue.shift()!
+    sortedIds.push(id)
+
+    for (const successorId of successors[id]) {
+      inDegree[successorId]--
+      if (inDegree[successorId] === 0) {
+        queue.push(successorId)
+      }
+    }
+  }
+
+  // If there are cycles or disconnected nodes, append remaining items
+  const sortedSet = new Set(sortedIds)
+  for (const item of items) {
+    if (!sortedSet.has(item.id)) {
+      sortedIds.push(item.id)
+    }
+  }
+
+  // Map back to items
+  const itemMap = new Map(items.map(i => [i.id, i]))
+  return sortedIds.map(id => itemMap.get(id)!).filter(Boolean)
+}
+
 // We'll dynamically import Frappe Gantt since it's a browser-only library
 let Gantt: typeof import('frappe-gantt').default | null = null
 
@@ -104,7 +160,10 @@ function ProjectSection({
   const [expanded, setExpanded] = useState(true)
 
   const tasks = useMemo(() => {
-    return items.map((item) => {
+    // Sort items so predecessors appear before their dependents
+    const sortedItems = topologicalSort(items, dependencies)
+
+    return sortedItems.map((item) => {
       const predecessorIds = getDirectPredecessors(dependencies, item.id)
       const start = item.start_time || item.due_date
       const end = item.end_time || item.due_date || item.start_time
@@ -228,9 +287,12 @@ export default function GanttView() {
     return projects.filter((p) => p.status === 'active' && projectGroups[p.id]?.length > 0)
   }, [projects, projectGroups])
 
-  // Convert unassigned items to Frappe Gantt format
+  // Convert unassigned items to Frappe Gantt format (sorted by dependencies)
   const mainGanttTasks = useMemo(() => {
-    return unassignedItems.map((item) => {
+    // Sort items so predecessors appear before their dependents
+    const sortedItems = topologicalSort(unassignedItems, dependencies)
+
+    return sortedItems.map((item) => {
       const predecessorIds = getDirectPredecessors(dependencies, item.id)
       const start = item.start_time || item.due_date
       const end = item.end_time || item.due_date || item.start_time
