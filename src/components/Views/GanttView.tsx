@@ -17,9 +17,11 @@ export default function GanttView() {
 
   const filteredItems = useMemo(() => getFilteredItems(filters), [getFilteredItems, filters, items])
 
-  // Filter to items that have dates
+  // Filter to items that have dates and are not completed
   const ganttItems = useMemo(() => {
-    return filteredItems.filter((item) => item.start_time || item.due_date)
+    return filteredItems.filter((item) =>
+      !item.completed && (item.start_time || item.due_date)
+    )
   }, [filteredItems])
 
   // Convert to Frappe Gantt format

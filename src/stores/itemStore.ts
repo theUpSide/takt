@@ -324,35 +324,48 @@ export const useItemStore = create<ItemState>((set, get) => ({
     const itemsChannel = supabase
       .channel('items-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'items' }, async (payload) => {
-        const items = get().items
+        const newItemId = (payload.new as Item)?.id
+        const oldItemId = (payload.old as Item)?.id
 
-        if (payload.eventType === 'INSERT') {
-          // Fetch with category relation
+        if (payload.eventType === 'INSERT' && newItemId) {
+          // Check if item already exists (added by createItem)
+          const currentItems = get().items
+          if (currentItems.some((i) => i.id === newItemId)) {
+            // Item already exists, just refresh it with full category data
+            const { data } = await supabase
+              .from('items')
+              .select('*, category:categories(*)')
+              .eq('id', newItemId)
+              .single()
+
+            if (data) {
+              set({ items: get().items.map((i) => (i.id === data.id ? data : i)) })
+            }
+            return
+          }
+
+          // Fetch with category relation for new items from other sources
           const { data } = await supabase
             .from('items')
             .select('*, category:categories(*)')
-            .eq('id', (payload.new as Item).id)
+            .eq('id', newItemId)
             .single()
 
           if (data) {
-            set({ items: [data, ...items] })
+            set({ items: [data, ...get().items] })
           }
-        } else if (payload.eventType === 'UPDATE') {
+        } else if (payload.eventType === 'UPDATE' && newItemId) {
           const { data } = await supabase
             .from('items')
             .select('*, category:categories(*)')
-            .eq('id', (payload.new as Item).id)
+            .eq('id', newItemId)
             .single()
 
           if (data) {
-            set({
-              items: items.map((i) => (i.id === data.id ? data : i)),
-            })
+            set({ items: get().items.map((i) => (i.id === data.id ? data : i)) })
           }
-        } else if (payload.eventType === 'DELETE') {
-          set({
-            items: items.filter((i) => i.id !== (payload.old as Item).id),
-          })
+        } else if (payload.eventType === 'DELETE' && oldItemId) {
+          set({ items: get().items.filter((i) => i.id !== oldItemId) })
         }
       })
       .subscribe()
