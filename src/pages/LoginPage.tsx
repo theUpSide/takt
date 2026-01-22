@@ -37,21 +37,48 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4 dark:bg-gray-900">
-      <div className="w-full max-w-md">
-        <div className="mb-8 text-center">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Takt</h1>
-          <p className="mt-2 text-gray-600 dark:text-gray-400">
+    <div className="flex min-h-screen flex-col md:flex-row">
+      {/* Left side - Branding */}
+      <div
+        className="flex flex-col items-center justify-center px-8 py-12 md:w-1/2 md:py-0"
+        style={{ background: 'linear-gradient(135deg, #1A3B63 0%, #0f2540 100%)' }}
+      >
+        <div className="max-w-md text-center">
+          <img
+            src="/brand/takt_lockup_small_transparent_bg.png"
+            alt="Takt"
+            className="mx-auto h-48 md:h-64 w-auto drop-shadow-2xl"
+          />
+          <p className="mt-6 text-lg text-[#c8d9e8] md:text-xl">
             Personal Task and Calendar Management
           </p>
+          <p className="mt-4 text-sm text-[#8aa4bd]">
+            Organize your day. Achieve your goals. Stay in rhythm.
+          </p>
         </div>
+      </div>
 
-        <div className="rounded-lg bg-white p-8 shadow dark:bg-gray-800">
-          <form onSubmit={handleSubmit} className="space-y-4">
+      {/* Right side - Login Form */}
+      <div className="flex flex-1 items-center justify-center bg-[#0f2540] px-4 py-12">
+        <div className="w-full max-w-md">
+          <div className="mb-8 text-center md:text-left">
+            <h2 className="text-2xl font-bold text-white">
+              {mode === 'signin' ? 'Welcome back' : mode === 'signup' ? 'Create account' : 'Magic link'}
+            </h2>
+            <p className="mt-2 text-[#8aa4bd]">
+              {mode === 'signin'
+                ? 'Sign in to continue to Takt'
+                : mode === 'signup'
+                  ? 'Get started with Takt today'
+                  : 'We\'ll send you a secure link'}
+            </p>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-5">
             <div>
               <label
                 htmlFor="email"
-                className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                className="mb-1.5 block text-sm font-medium text-[#c8d9e8]"
               >
                 Email
               </label>
@@ -61,7 +88,8 @@ export default function LoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                className="w-full rounded-lg border border-[#2a5080] bg-[#1A3B63] px-4 py-3 text-white placeholder:text-[#8aa4bd] focus:border-[#F2A14A] focus:outline-none focus:ring-2 focus:ring-[#F2A14A]/30 transition-all"
+                placeholder="you@example.com"
               />
             </div>
 
@@ -69,7 +97,7 @@ export default function LoginPage() {
               <div>
                 <label
                   htmlFor="password"
-                  className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                  className="mb-1.5 block text-sm font-medium text-[#c8d9e8]"
                 >
                   Password
                 </label>
@@ -80,19 +108,20 @@ export default function LoginPage() {
                   onChange={(e) => setPassword(e.target.value)}
                   required
                   minLength={6}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                  className="w-full rounded-lg border border-[#2a5080] bg-[#1A3B63] px-4 py-3 text-white placeholder:text-[#8aa4bd] focus:border-[#F2A14A] focus:outline-none focus:ring-2 focus:ring-[#F2A14A]/30 transition-all"
+                  placeholder="Enter your password"
                 />
               </div>
             )}
 
             {error && (
-              <div className="rounded-lg bg-red-50 p-3 text-sm text-red-600 dark:bg-red-900/30 dark:text-red-400">
+              <div className="rounded-lg bg-red-500/10 border border-red-500/30 p-3 text-sm text-red-400">
                 {error}
               </div>
             )}
 
             {message && (
-              <div className="rounded-lg bg-green-50 p-3 text-sm text-green-600 dark:bg-green-900/30 dark:text-green-400">
+              <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/30 p-3 text-sm text-emerald-400">
                 {message}
               </div>
             )}
@@ -100,31 +129,31 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full rounded-lg bg-blue-500 py-2 font-medium text-white hover:bg-blue-600 disabled:opacity-50"
+              className="w-full rounded-lg bg-[#165A89] py-3 font-semibold text-white hover:bg-[#1e7ab8] disabled:opacity-50 transition-all shadow-lg hover:shadow-xl"
             >
               {loading
                 ? 'Loading...'
                 : mode === 'signin'
                   ? 'Sign In'
                   : mode === 'signup'
-                    ? 'Sign Up'
+                    ? 'Create Account'
                     : 'Send Magic Link'}
             </button>
           </form>
 
-          <div className="mt-6 space-y-2 text-center text-sm">
+          <div className="mt-8 space-y-3 text-center">
             {mode === 'signin' && (
               <>
                 <button
                   onClick={() => setMode('signup')}
-                  className="text-blue-500 hover:text-blue-600"
+                  className="text-[#F2A14A] hover:text-[#f5b76d] transition-colors"
                 >
-                  Don't have an account? Sign up
+                  Don't have an account? <span className="font-semibold">Sign up</span>
                 </button>
                 <br />
                 <button
                   onClick={() => setMode('magic')}
-                  className="text-gray-500 hover:text-gray-600 dark:text-gray-400"
+                  className="text-[#8aa4bd] hover:text-[#c8d9e8] text-sm transition-colors"
                 >
                   Sign in with magic link
                 </button>
@@ -133,15 +162,15 @@ export default function LoginPage() {
             {mode === 'signup' && (
               <button
                 onClick={() => setMode('signin')}
-                className="text-blue-500 hover:text-blue-600"
+                className="text-[#F2A14A] hover:text-[#f5b76d] transition-colors"
               >
-                Already have an account? Sign in
+                Already have an account? <span className="font-semibold">Sign in</span>
               </button>
             )}
             {mode === 'magic' && (
               <button
                 onClick={() => setMode('signin')}
-                className="text-blue-500 hover:text-blue-600"
+                className="text-[#F2A14A] hover:text-[#f5b76d] transition-colors"
               >
                 Sign in with password instead
               </button>

@@ -134,9 +134,9 @@ export default function Header() {
         </button>
         <div className="flex items-center gap-2">
           <img
-            src="/brand/takt_mark_only_transparent_bg.png"
+            src="/brand/takt_app_icon_gradient_transparent_bg.png"
             alt="Takt"
-            className="h-7 w-auto"
+            className="h-8 w-8 rounded-lg"
           />
           <span className="hidden sm:inline text-lg font-semibold text-theme-text-primary tracking-tight">Takt</span>
         </div>
