@@ -6,6 +6,7 @@ import { useCategoryStore } from './categoryStore'
 import { useProjectStore } from './projectStore'
 import { useToastStore } from './toastStore'
 import { getTodayString } from '@/lib/dateUtils'
+import { supabase } from '@/lib/supabase'
 import type { Item } from '@/types'
 
 interface TaskInChain {
@@ -86,9 +87,11 @@ interface AIState {
   isProcessing: boolean
   lastError: string | null
   commandBarOpen: boolean
+  apiKeyLoaded: boolean
 
   // Actions
   setApiKey: (key: string | null) => void
+  loadApiKeyFromDatabase: () => Promise<void>
   openCommandBar: () => void
   closeCommandBar: () => void
   toggleCommandBar: () => void
@@ -292,8 +295,53 @@ export const useAIStore = create<AIState>()(
       isProcessing: false,
       lastError: null,
       commandBarOpen: false,
+      apiKeyLoaded: false,
 
-      setApiKey: (key) => set({ apiKey: key }),
+      setApiKey: async (key) => {
+        set({ apiKey: key })
+
+        // Also save to database for persistence across devices
+        try {
+          const { data: session } = await supabase.auth.getSession()
+          if (session?.session?.user) {
+            await supabase
+              .from('user_preferences')
+              .upsert({
+                user_id: session.session.user.id,
+                api_key: key,
+              }, {
+                onConflict: 'user_id'
+              })
+          }
+        } catch (error) {
+          console.error('Failed to save API key to database:', error)
+        }
+      },
+
+      loadApiKeyFromDatabase: async () => {
+        try {
+          const { data: session } = await supabase.auth.getSession()
+          if (!session?.session?.user) {
+            set({ apiKeyLoaded: true })
+            return
+          }
+
+          const { data } = await supabase
+            .from('user_preferences')
+            .select('api_key')
+            .eq('user_id', session.session.user.id)
+            .single()
+
+          if (data?.api_key) {
+            set({ apiKey: data.api_key, apiKeyLoaded: true })
+          } else {
+            set({ apiKeyLoaded: true })
+          }
+        } catch {
+          // No preferences yet, that's fine
+          set({ apiKeyLoaded: true })
+        }
+      },
 
       openCommandBar: () => set({ commandBarOpen: true }),
       closeCommandBar: () => set({ commandBarOpen: false }),
@@ -919,3 +967,22 @@ Please suggest an optimal schedule for the unscheduled tasks.`
     }
   )
 )
+
+// Load API key from database on initialization and auth state changes
+const initializeApiKey = async () => {
+  await useAIStore.getState().loadApiKeyFromDatabase()
+}
+
+// Listen for auth state changes to load/clear API key
+supabase.auth.onAuthStateChange((event, session) => {
+  if (event === 'SIGNED_IN' && session) {
+    // User just signed in, load their API key from database
+    useAIStore.getState().loadApiKeyFromDatabase()
+  } else if (event === 'SIGNED_OUT') {
+    // User signed out, clear the API key
+    useAIStore.setState({ apiKey: null, apiKeyLoaded: false })
+  }
+})
+
+// Initialize on module load
+initializeApiKey()
