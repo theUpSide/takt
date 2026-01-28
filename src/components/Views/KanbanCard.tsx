@@ -3,6 +3,7 @@ import { useViewStore } from '@/stores/viewStore'
 import { getRelativeDate, isOverdue } from '@/lib/dateUtils'
 import { getDirectPredecessors } from '@/lib/dependencyUtils'
 import Checkbox from '@/components/Common/Checkbox'
+import ProgressRing from '@/components/Common/ProgressRing'
 import type { Item } from '@/types'
 import clsx from 'clsx'
 
@@ -12,12 +13,18 @@ interface KanbanCardProps {
 }
 
 export default function KanbanCard({ item, isDragging }: KanbanCardProps) {
-  const { toggleComplete, dependencies } = useItemStore()
+  const { toggleComplete, dependencies, getSubtasks, getSubtaskProgress } = useItemStore()
   const { openViewItemModal } = useViewStore()
 
   const predecessors = getDirectPredecessors(dependencies, item.id)
   const dueDate = item.due_date || item.start_time
   const overdue = item.due_date ? isOverdue(item.due_date) : false
+
+  // Subtask data
+  const subtasks = getSubtasks(item.id)
+  const subtaskProgress = getSubtaskProgress(item.id)
+  const hasSubtasks = subtasks.length > 0
+  const isSubtask = !!item.parent_id
 
   const handleCardClick = () => {
     openViewItemModal(item.id)
@@ -30,12 +37,23 @@ export default function KanbanCard({ item, isDragging }: KanbanCardProps) {
         'cursor-pointer rounded-lg bg-theme-bg-card p-3 border border-theme-border-primary card-hover transition-all-fast',
         isDragging && 'shadow-card-lg ring-2 ring-theme-accent-primary',
         overdue && !item.completed && 'border-theme-accent-danger/50 overdue-glow',
-        item.completed && 'opacity-70'
+        item.completed && 'opacity-70',
+        isSubtask && 'ml-4 border-l-2 border-l-theme-accent-primary/30'
       )}
     >
       <div className="flex items-start gap-3">
-        {/* Checkbox for tasks */}
-        {item.type === 'task' && (
+        {/* Progress ring for parent tasks with subtasks */}
+        {hasSubtasks && !item.completed && (
+          <ProgressRing
+            percentage={subtaskProgress.percentage}
+            size="sm"
+            showLabel={false}
+            className="mt-0.5 shrink-0"
+          />
+        )}
+
+        {/* Checkbox for tasks without subtasks */}
+        {item.type === 'task' && !hasSubtasks && (
           <div onClick={(e) => e.stopPropagation()}>
             <Checkbox
               checked={item.completed}
@@ -116,6 +134,23 @@ export default function KanbanCard({ item, isDragging }: KanbanCardProps) {
               />
             </svg>
             {predecessors.length}
+          </span>
+        )}
+
+        {/* Subtask indicator */}
+        {hasSubtasks && (
+          <span className="flex items-center gap-1 text-theme-text-muted">
+            <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M4 6h16M4 10h16M4 14h16M4 18h16"
+              />
+            </svg>
+            <span className="text-xs">
+              {subtaskProgress.completed}/{subtaskProgress.total}
+            </span>
           </span>
         )}
 

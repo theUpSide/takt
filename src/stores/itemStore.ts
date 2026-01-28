@@ -22,6 +22,13 @@ interface ItemState {
   addDependency: (predecessorId: string, successorId: string) => Promise<boolean>
   removeDependency: (predecessorId: string, successorId: string) => Promise<boolean>
 
+  // Subtasks
+  getSubtasks: (parentId: string) => Item[]
+  getParent: (childId: string) => Item | null
+  getSubtaskProgress: (parentId: string) => { completed: number; total: number; percentage: number }
+  getTopLevelItems: () => Item[]
+  createSubtask: (parentId: string, data: Partial<Item>) => Promise<Item | null>
+
   // Filters
   getFilteredItems: (filters: ItemFilters) => Item[]
 
@@ -86,6 +93,8 @@ export const useItemStore = create<ItemState>((set, get) => ({
         scheduled_date: data.scheduled_date,
         scheduled_start: data.scheduled_start,
         duration_minutes: data.duration_minutes ?? 30,
+        // Subtask support
+        parent_id: data.parent_id ?? null,
       })
       .select('*, category:categories(*), project:projects(*)')
       .single()
@@ -97,7 +106,7 @@ export const useItemStore = create<ItemState>((set, get) => ({
     }
 
     set({ items: [newItem, ...get().items] })
-    toast.success(`${data.type === 'event' ? 'Event' : 'Task'} created`)
+    toast.success(`${data.type === 'event' ? 'Event' : data.parent_id ? 'Subtask' : 'Task'} created`)
     return newItem
   },
 
@@ -319,6 +328,45 @@ export const useItemStore = create<ItemState>((set, get) => ({
       toast.success('Task unscheduled')
     }
     return result
+  },
+
+  // Subtasks: Get all subtasks for a parent item
+  getSubtasks: (parentId: string) => {
+    return get().items.filter((item) => item.parent_id === parentId)
+  },
+
+  // Subtasks: Get the parent of a child item
+  getParent: (childId: string) => {
+    const child = get().items.find((item) => item.id === childId)
+    if (!child?.parent_id) return null
+    return get().items.find((item) => item.id === child.parent_id) ?? null
+  },
+
+  // Subtasks: Calculate progress based on completed subtasks
+  getSubtaskProgress: (parentId: string) => {
+    const subtasks = get().getSubtasks(parentId)
+    if (subtasks.length === 0) {
+      return { completed: 0, total: 0, percentage: 0 }
+    }
+    const completed = subtasks.filter((task) => task.completed).length
+    return {
+      completed,
+      total: subtasks.length,
+      percentage: Math.round((completed / subtasks.length) * 100),
+    }
+  },
+
+  // Subtasks: Get only top-level items (items without a parent)
+  getTopLevelItems: () => {
+    return get().items.filter((item) => !item.parent_id)
+  },
+
+  // Subtasks: Create a new subtask under a parent
+  createSubtask: async (parentId: string, data: Partial<Item>) => {
+    return get().createItem({
+      ...data,
+      parent_id: parentId,
+    })
   },
 
   subscribeToChanges: () => {

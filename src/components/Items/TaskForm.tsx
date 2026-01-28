@@ -12,6 +12,7 @@ const taskSchema = z.object({
   description: z.string().max(2000).optional(),
   category_id: z.string().nullable(),
   due_date: z.string().nullable(),
+  parent_id: z.string().nullable(),
 })
 
 type TaskFormData = z.infer<typeof taskSchema>
@@ -22,8 +23,22 @@ interface TaskFormProps {
 }
 
 export default function TaskForm({ item, onSuccess }: TaskFormProps) {
-  const { createItem, updateItem, dependencies, addDependency, removeDependency } = useItemStore()
+  const { items, createItem, updateItem, dependencies, addDependency, removeDependency, getSubtasks } = useItemStore()
   const { categories } = useCategoryStore()
+
+  // Get potential parent tasks (tasks that aren't subtasks of this item)
+  const potentialParents = items.filter((i) => {
+    // Must be a task
+    if (i.type !== 'task') return false
+    // Can't be itself
+    if (item && i.id === item.id) return false
+    // Can't be a subtask of the current item (would create a cycle)
+    if (item) {
+      const subtasks = getSubtasks(item.id)
+      if (subtasks.some((s) => s.id === i.id)) return false
+    }
+    return true
+  })
 
   const {
     register,
@@ -36,6 +51,7 @@ export default function TaskForm({ item, onSuccess }: TaskFormProps) {
       description: item?.description || '',
       category_id: item?.category_id || null,
       due_date: item?.due_date ? formatForInput(item.due_date) : null,
+      parent_id: item?.parent_id || null,
     },
   })
 
@@ -50,6 +66,7 @@ export default function TaskForm({ item, onSuccess }: TaskFormProps) {
       description: data.description || null,
       category_id: data.category_id || null,
       due_date: data.due_date ? new Date(data.due_date).toISOString() : null,
+      parent_id: data.parent_id || null,
     }
 
     if (item) {
@@ -135,6 +152,25 @@ export default function TaskForm({ item, onSuccess }: TaskFormProps) {
             className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
           />
         </div>
+      </div>
+
+      {/* Parent Task Selector */}
+      <div>
+        <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+          Parent Task
+          <span className="ml-1 text-xs text-gray-500">(optional - makes this a subtask)</span>
+        </label>
+        <select
+          {...register('parent_id')}
+          className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+        >
+          <option value="">No parent (top-level task)</option>
+          {potentialParents.map((task) => (
+            <option key={task.id} value={task.id}>
+              {task.title}
+            </option>
+          ))}
+        </select>
       </div>
 
       {item && (

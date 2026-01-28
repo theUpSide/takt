@@ -24,9 +24,13 @@ export interface Item {
   scheduled_date: string | null    // YYYY-MM-DD - when task is scheduled
   scheduled_start: string | null   // HH:MM - start time for the day
   duration_minutes: number | null  // How long the task takes (default: 30)
+  // Subtask support
+  parent_id: string | null         // Parent task ID for subtasks
   // Joined relations
   category?: Category | null
   project?: Project | null
+  parent?: Item | null             // Parent item (when fetched)
+  children?: Item[]                // Child subtasks (when fetched)
 }
 
 export interface Task extends Item {
@@ -140,6 +144,8 @@ export interface TaskFormData {
   scheduled_date?: string | null
   scheduled_start?: string | null
   duration_minutes?: number | null
+  // Subtask support
+  parent_id?: string | null
 }
 
 export interface EventFormData {

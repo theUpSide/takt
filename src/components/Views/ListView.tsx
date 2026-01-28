@@ -4,35 +4,72 @@ import {
   getCoreRowModel,
   getSortedRowModel,
   getFilteredRowModel,
+  getExpandedRowModel,
   flexRender,
   createColumnHelper,
   SortingState,
+  ExpandedState,
 } from '@tanstack/react-table'
 import { useItemStore } from '@/stores/itemStore'
 import { useViewStore } from '@/stores/viewStore'
 import { getRelativeDate, isOverdue } from '@/lib/dateUtils'
 import CategoryBadge from '@/components/Common/CategoryBadge'
 import Checkbox from '@/components/Common/Checkbox'
+import ProgressRing from '@/components/Common/ProgressRing'
 import type { Item } from '@/types'
 import clsx from 'clsx'
 
-const columnHelper = createColumnHelper<Item>()
+// Extended item type with children for tree structure
+interface TreeItem extends Item {
+  subRows?: TreeItem[]
+}
+
+const columnHelper = createColumnHelper<TreeItem>()
 
 export default function ListView() {
-  const { items, toggleComplete } = useItemStore()
+  const { items, toggleComplete, getSubtaskProgress } = useItemStore()
   const { filters, openViewItemModal } = useViewStore()
   const getFilteredItems = useItemStore((state) => state.getFilteredItems)
   const [sorting, setSorting] = useState<SortingState>([])
   const [completedExpanded, setCompletedExpanded] = useState(false)
+  const [expanded, setExpanded] = useState<ExpandedState>({})
 
   const filteredItems = useMemo(() => getFilteredItems(filters), [getFilteredItems, filters, items])
 
-  // Split into active and completed
-  const { activeItems, completedItems } = useMemo(() => {
-    const active: Item[] = []
-    const completed: Item[] = []
+  // Build hierarchical tree structure
+  const buildTree = (items: Item[]): TreeItem[] => {
+    const itemMap = new Map<string, TreeItem>()
+    const roots: TreeItem[] = []
 
-    filteredItems.forEach(item => {
+    // First pass: create map of all items
+    items.forEach(item => {
+      itemMap.set(item.id, { ...item, subRows: [] })
+    })
+
+    // Second pass: build tree structure
+    items.forEach(item => {
+      const treeItem = itemMap.get(item.id)!
+      if (item.parent_id && itemMap.has(item.parent_id)) {
+        const parent = itemMap.get(item.parent_id)!
+        parent.subRows = parent.subRows || []
+        parent.subRows.push(treeItem)
+      } else if (!item.parent_id) {
+        roots.push(treeItem)
+      }
+    })
+
+    return roots
+  }
+
+  // Split into active and completed (only top-level for grouping)
+  const { activeItems, completedItems } = useMemo(() => {
+    // Build tree from all filtered items
+    const tree = buildTree(filteredItems)
+
+    const active: TreeItem[] = []
+    const completed: TreeItem[] = []
+
+    tree.forEach(item => {
       if (item.completed) {
         completed.push(item)
       } else {
@@ -46,31 +83,93 @@ export default function ListView() {
   const columns = useMemo(
     () => [
       columnHelper.display({
+        id: 'expander',
+        header: '',
+        cell: ({ row }) => {
+          const hasSubtasks = row.subRows && row.subRows.length > 0
+          if (!hasSubtasks) return <span className="w-6" />
+
+          return (
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                row.toggleExpanded()
+              }}
+              className="p-1 hover:bg-theme-bg-hover rounded transition-colors"
+            >
+              <svg
+                className={clsx(
+                  'h-4 w-4 text-theme-text-muted transition-transform',
+                  row.getIsExpanded() && 'rotate-90'
+                )}
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+          )
+        },
+        size: 32,
+      }),
+      columnHelper.display({
         id: 'checkbox',
         header: '',
-        cell: ({ row }) =>
-          row.original.type === 'task' ? (
+        cell: ({ row }) => {
+          const hasSubtasks = row.subRows && row.subRows.length > 0
+
+          // For parent tasks with subtasks, show progress ring
+          if (row.original.type === 'task' && hasSubtasks) {
+            const progress = getSubtaskProgress(row.original.id)
+            return (
+              <ProgressRing
+                percentage={progress.percentage}
+                size="sm"
+                showLabel={false}
+              />
+            )
+          }
+
+          // For regular tasks, show checkbox
+          return row.original.type === 'task' ? (
             <div onClick={(e) => e.stopPropagation()}>
               <Checkbox
                 checked={row.original.completed}
                 onChange={() => toggleComplete(row.original.id)}
               />
             </div>
-          ) : null,
+          ) : null
+        },
         size: 40,
       }),
       columnHelper.accessor('title', {
         header: 'Title',
-        cell: ({ row, getValue }) => (
-          <span
-            className={clsx(
-              'font-medium',
-              row.original.completed && 'text-theme-text-muted line-through'
-            )}
-          >
-            {getValue()}
-          </span>
-        ),
+        cell: ({ row, getValue }) => {
+          const hasSubtasks = row.subRows && row.subRows.length > 0
+          const progress = hasSubtasks ? getSubtaskProgress(row.original.id) : null
+
+          return (
+            <div
+              className="flex items-center gap-2"
+              style={{ paddingLeft: `${row.depth * 24}px` }}
+            >
+              <span
+                className={clsx(
+                  'font-medium',
+                  row.original.completed && 'text-theme-text-muted line-through'
+                )}
+              >
+                {getValue()}
+              </span>
+              {hasSubtasks && progress && (
+                <span className="text-xs text-theme-text-muted">
+                  ({progress.completed}/{progress.total})
+                </span>
+              )}
+            </div>
+          )
+        },
       }),
       columnHelper.accessor('type', {
         header: 'Type',
@@ -137,23 +236,30 @@ export default function ListView() {
   const activeTable = useReactTable({
     data: activeItems,
     columns,
-    state: { sorting },
+    state: { sorting, expanded },
     onSortingChange: setSorting,
+    onExpandedChange: setExpanded,
+    getSubRows: (row) => row.subRows,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
+    getExpandedRowModel: getExpandedRowModel(),
   })
 
   const completedTable = useReactTable({
     data: completedItems,
     columns,
+    state: { expanded },
+    onExpandedChange: setExpanded,
+    getSubRows: (row) => row.subRows,
     getCoreRowModel: getCoreRowModel(),
+    getExpandedRowModel: getExpandedRowModel(),
   })
 
   // Columns to hide on mobile
   const mobileHiddenColumns = ['category', 'source', 'type']
 
-  const renderTableHeader = (table: ReturnType<typeof useReactTable<Item>>) => (
+  const renderTableHeader = (table: ReturnType<typeof useReactTable<TreeItem>>) => (
     <thead>
       {table.getHeaderGroups().map((headerGroup) => (
         <tr key={headerGroup.id} className="border-b border-theme-border-primary">
@@ -185,7 +291,7 @@ export default function ListView() {
     </thead>
   )
 
-  const renderTableRows = (table: ReturnType<typeof useReactTable<Item>>, startIndex = 0) => (
+  const renderTableRows = (table: ReturnType<typeof useReactTable<TreeItem>>, startIndex = 0) => (
     <tbody>
       {table.getRowModel().rows.map((row, index) => {
         const overdue = row.original.due_date ? isOverdue(row.original.due_date) && !row.original.completed : false
