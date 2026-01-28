@@ -3,6 +3,8 @@ import { useViewStore } from '@/stores/viewStore'
 import { formatDateTime, getRelativeTime } from '@/lib/dateUtils'
 import { getDirectPredecessors, getDirectSuccessors } from '@/lib/dependencyUtils'
 import CategoryBadge from '@/components/Common/CategoryBadge'
+import ProgressRing from '@/components/Common/ProgressRing'
+import SubtaskList from './SubtaskList'
 import type { Item } from '@/types'
 
 interface ItemDetailProps {
@@ -10,14 +12,19 @@ interface ItemDetailProps {
 }
 
 export default function ItemDetail({ item }: ItemDetailProps) {
-  const { items, dependencies, toggleComplete, deleteItem } = useItemStore()
-  const { openEditItemModal, closeItemModal } = useViewStore()
+  const { items, dependencies, toggleComplete, deleteItem, getSubtasks, getSubtaskProgress, getParent } = useItemStore()
+  const { openEditItemModal, closeItemModal, openViewItemModal } = useViewStore()
 
   const predecessorIds = getDirectPredecessors(dependencies, item.id)
   const successorIds = getDirectSuccessors(dependencies, item.id)
 
   const predecessors = items.filter((i) => predecessorIds.includes(i.id))
   const successors = items.filter((i) => successorIds.includes(i.id))
+
+  // Subtask data
+  const subtasks = getSubtasks(item.id)
+  const subtaskProgress = getSubtaskProgress(item.id)
+  const parentItem = getParent(item.id)
 
   const handleDelete = async () => {
     if (confirm('Are you sure you want to delete this item?')) {
@@ -82,6 +89,44 @@ export default function ItemDetail({ item }: ItemDetailProps) {
         <div>
           <h3 className="mb-1 text-sm font-medium text-gray-500 dark:text-gray-400">Description</h3>
           <p className="text-gray-900 dark:text-white">{item.description}</p>
+        </div>
+      )}
+
+      {/* Parent Task */}
+      {parentItem && (
+        <div className="rounded-lg bg-theme-bg-tertiary/50 p-3">
+          <h3 className="mb-2 text-sm font-medium text-gray-500 dark:text-gray-400">
+            Parent Task
+          </h3>
+          <button
+            onClick={() => openViewItemModal(parentItem.id)}
+            className="flex items-center gap-2 text-sm text-theme-accent-primary hover:text-theme-accent-primary/80 transition-colors"
+          >
+            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 11l5-5m0 0l5 5m-5-5v12" />
+            </svg>
+            {parentItem.title}
+          </button>
+        </div>
+      )}
+
+      {/* Subtasks */}
+      {item.type === 'task' && (
+        <div>
+          {subtasks.length > 0 && (
+            <div className="flex items-center gap-3 mb-3">
+              <ProgressRing percentage={subtaskProgress.percentage} size="lg" />
+              <div>
+                <p className="text-sm font-medium text-gray-900 dark:text-white">
+                  {subtaskProgress.completed} of {subtaskProgress.total} subtasks complete
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  {subtaskProgress.percentage}% progress
+                </p>
+              </div>
+            </div>
+          )}
+          <SubtaskList parentId={item.id} />
         </div>
       )}
 

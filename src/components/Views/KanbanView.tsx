@@ -15,6 +15,11 @@ export default function KanbanView() {
 
   const filteredItems = useMemo(() => getFilteredItems(filters), [getFilteredItems, filters, items])
 
+  // Filter out subtasks - only show top-level items in Kanban
+  const topLevelItems = useMemo(() => {
+    return filteredItems.filter((item) => !item.parent_id)
+  }, [filteredItems])
+
   // Group items by category
   const itemsByCategory = useMemo(() => {
     const grouped = new Map<string | null, Item[]>()
@@ -23,15 +28,15 @@ export default function KanbanView() {
     categories.forEach((cat) => grouped.set(cat.id, []))
     grouped.set(null, []) // Uncategorized
 
-    // Group filtered items
-    filteredItems.forEach((item) => {
+    // Group top-level items only (subtasks are shown via progress indicator on parent)
+    topLevelItems.forEach((item) => {
       const categoryId = item.category_id
       const existing = grouped.get(categoryId) || []
       grouped.set(categoryId, [...existing, item])
     })
 
     return grouped
-  }, [filteredItems, categories])
+  }, [topLevelItems, categories])
 
   const handleDragEnd = async (result: DropResult) => {
     const { destination, source, draggableId } = result
