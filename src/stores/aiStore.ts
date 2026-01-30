@@ -101,6 +101,36 @@ interface AIState {
   optimizeSchedule: (date: string, scheduledItems: Item[], unscheduledTasks: Item[]) => Promise<OptimizationResult | null>
 }
 
+/**
+ * Extract JSON from a response that may be wrapped in markdown code fences.
+ * Handles plain JSON, ```json ... ```, or JSON embedded in other text.
+ */
+function extractJSON(text: string): string {
+  const trimmed = text.trim()
+
+  // Already valid JSON — return as-is
+  try {
+    JSON.parse(trimmed)
+    return trimmed
+  } catch {
+    // continue to extraction strategies
+  }
+
+  // Strip markdown code fences (```json ... ``` or ``` ... ```)
+  const codeBlockMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/)
+  if (codeBlockMatch) {
+    return codeBlockMatch[1].trim()
+  }
+
+  // Extract first JSON object from surrounding text
+  const jsonMatch = trimmed.match(/\{[\s\S]*\}/)
+  if (jsonMatch) {
+    return jsonMatch[0]
+  }
+
+  return trimmed
+}
+
 const SYSTEM_PROMPT = `You are an AI assistant for a task management app called Takt. You handle:
 1. Creating tasks and events
 2. Querying existing tasks
@@ -388,14 +418,25 @@ export const useAIStore = create<AIState>()(
             throw new Error('Unexpected response type')
           }
 
-          // Parse the JSON response
-          const parsed = JSON.parse(content.text) as ParsedAction
+          // Parse the JSON response, stripping code fences if present
+          const jsonText = extractJSON(content.text)
+          const parsed = JSON.parse(jsonText) as ParsedAction
           set({ isProcessing: false })
           return parsed
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : 'Failed to process input'
           set({ isProcessing: false, lastError: errorMessage })
-          toast.error('Failed to understand input')
+
+          // Show a more specific error when possible
+          if (errorMessage.includes('JSON')) {
+            toast.error('Failed to parse AI response. Please try again.')
+          } else if (errorMessage.includes('401') || errorMessage.includes('authentication')) {
+            toast.error('Invalid API key. Please check your key in Settings.')
+          } else if (errorMessage.includes('404') || errorMessage.includes('not_found')) {
+            toast.error('AI model not available. Please try again later.')
+          } else {
+            toast.error(`Smart entry failed: ${errorMessage}`)
+          }
           return { type: 'unknown', message: errorMessage }
         }
       },
@@ -573,13 +614,15 @@ export const useAIStore = create<AIState>()(
               // CRITICAL: Always set due_date for Gantt chart visibility
               const today = getTodayString()
 
-              await itemStore.createItem({
+              const result = await itemStore.createItem({
                 type: 'task',
                 title: action.data?.title || 'New Task',
                 description: action.data?.description,
                 due_date: action.data?.due_date || today, // Default to today
                 category_id: categoryId,
               })
+
+              if (!result) return false
 
               // Notify about recurring suggestion
               if (action.data?.suggested_recurring) {
@@ -612,7 +655,7 @@ export const useAIStore = create<AIState>()(
                 endTime = startDate.toISOString().split('.')[0]
               }
 
-              await itemStore.createItem({
+              const result = await itemStore.createItem({
                 type: 'event',
                 title: action.data?.title || 'New Event',
                 description: action.data?.description,
@@ -620,6 +663,8 @@ export const useAIStore = create<AIState>()(
                 end_time: endTime,
                 category_id: categoryId,
               })
+
+              if (!result) return false
 
               if (action.data?.suggested_recurring) {
                 toast.info(`Tip: "${action.data.title}" looks recurring. Set up recurrence in event details!`)
@@ -948,8 +993,8 @@ Please suggest an optimal schedule for the unscheduled tasks.`
             throw new Error('Unexpected response type')
           }
 
-          // Parse the JSON response
-          const parsed = JSON.parse(content.text) as OptimizationResult
+          // Parse the JSON response, stripping code fences if present
+          const parsed = JSON.parse(extractJSON(content.text)) as OptimizationResult
           set({ isProcessing: false })
           toast.success('Schedule optimized! Review suggestions below.')
           return parsed
