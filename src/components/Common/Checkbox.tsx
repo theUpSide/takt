@@ -5,6 +5,7 @@ interface CheckboxProps {
   checked: boolean
   onChange: () => void
   disabled?: boolean
+  indeterminate?: boolean
   size?: 'sm' | 'md'
   className?: string
 }
@@ -13,6 +14,7 @@ export default function Checkbox({
   checked,
   onChange,
   disabled = false,
+  indeterminate = false,
   size = 'md',
   className,
 }: CheckboxProps) {
@@ -42,17 +44,32 @@ export default function Checkbox({
       className={clsx(
         'shrink-0 rounded border-2 flex items-center justify-center transition-all-fast',
         sizeClasses,
-        checked
+        checked || indeterminate
           ? 'bg-theme-accent-success border-theme-accent-success'
           : 'border-theme-border-secondary bg-transparent hover:border-theme-accent-primary',
         isAnimating && 'animate-checkbox-pop',
         disabled && 'opacity-50 cursor-not-allowed',
         className
       )}
-      aria-checked={checked}
+      aria-checked={indeterminate ? 'mixed' : checked}
       role="checkbox"
     >
-      {checked && (
+      {indeterminate ? (
+        <svg
+          className="text-white"
+          width={checkSize}
+          height={checkSize}
+          viewBox="0 0 14 14"
+          fill="none"
+        >
+          <path
+            d="M3 7H11"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+          />
+        </svg>
+      ) : checked ? (
         <svg
           className={clsx('text-white', isAnimating && 'animate-checkmark')}
           width={checkSize}
@@ -72,7 +89,7 @@ export default function Checkbox({
             }}
           />
         </svg>
-      )}
+      ) : null}
     </button>
   )
 }

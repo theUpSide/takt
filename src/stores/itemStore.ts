@@ -18,6 +18,13 @@ interface ItemState {
   deleteItem: (id: string) => Promise<boolean>
   toggleComplete: (id: string) => Promise<void>
 
+  // Batch actions
+  batchDelete: (ids: string[]) => Promise<number>
+  batchComplete: (ids: string[]) => Promise<number>
+  batchUncomplete: (ids: string[]) => Promise<number>
+  batchUpdateCategory: (ids: string[], categoryId: string | null) => Promise<number>
+  batchAssignProject: (ids: string[], projectId: string | null) => Promise<number>
+
   // Dependencies
   addDependency: (predecessorId: string, successorId: string) => Promise<boolean>
   removeDependency: (predecessorId: string, successorId: string) => Promise<boolean>
@@ -169,6 +176,147 @@ export const useItemStore = create<ItemState>((set, get) => ({
     if (result) {
       toast.success(completed ? 'Task completed!' : 'Task reopened')
     }
+  },
+
+  batchDelete: async (ids) => {
+    const toast = useToastStore.getState()
+    if (ids.length === 0) return 0
+
+    const { error } = await supabase.from('items').delete().in('id', ids)
+
+    if (error) {
+      set({ error: error.message })
+      toast.error('Failed to delete items')
+      return 0
+    }
+
+    set({
+      items: get().items.filter((item) => !ids.includes(item.id)),
+      dependencies: get().dependencies.filter(
+        (d) => !ids.includes(d.predecessor_id) && !ids.includes(d.successor_id)
+      ),
+    })
+    toast.success(`${ids.length} item${ids.length > 1 ? 's' : ''} deleted`)
+    return ids.length
+  },
+
+  batchComplete: async (ids) => {
+    const toast = useToastStore.getState()
+    if (ids.length === 0) return 0
+
+    const now = new Date().toISOString()
+    const { error } = await supabase
+      .from('items')
+      .update({ completed: true, completed_at: now, updated_at: now })
+      .in('id', ids)
+
+    if (error) {
+      set({ error: error.message })
+      toast.error('Failed to complete items')
+      return 0
+    }
+
+    set({
+      items: get().items.map((item) =>
+        ids.includes(item.id)
+          ? { ...item, completed: true, completed_at: now, updated_at: now }
+          : item
+      ),
+    })
+    toast.success(`${ids.length} item${ids.length > 1 ? 's' : ''} completed`)
+    return ids.length
+  },
+
+  batchUncomplete: async (ids) => {
+    const toast = useToastStore.getState()
+    if (ids.length === 0) return 0
+
+    const now = new Date().toISOString()
+    const { error } = await supabase
+      .from('items')
+      .update({ completed: false, completed_at: null, updated_at: now })
+      .in('id', ids)
+
+    if (error) {
+      set({ error: error.message })
+      toast.error('Failed to reopen items')
+      return 0
+    }
+
+    set({
+      items: get().items.map((item) =>
+        ids.includes(item.id)
+          ? { ...item, completed: false, completed_at: null, updated_at: now }
+          : item
+      ),
+    })
+    toast.success(`${ids.length} item${ids.length > 1 ? 's' : ''} reopened`)
+    return ids.length
+  },
+
+  batchUpdateCategory: async (ids, categoryId) => {
+    const toast = useToastStore.getState()
+    if (ids.length === 0) return 0
+
+    const now = new Date().toISOString()
+    const { error } = await supabase
+      .from('items')
+      .update({ category_id: categoryId, updated_at: now })
+      .in('id', ids)
+
+    if (error) {
+      set({ error: error.message })
+      toast.error('Failed to update category')
+      return 0
+    }
+
+    // Re-fetch items with category data
+    const { data: updatedItems } = await supabase
+      .from('items')
+      .select('*, category:categories(*), project:projects(*)')
+      .in('id', ids)
+
+    if (updatedItems) {
+      const updatedMap = new Map(updatedItems.map((i) => [i.id, i]))
+      set({
+        items: get().items.map((item) => updatedMap.get(item.id) ?? item),
+      })
+    }
+    toast.success(`Category updated for ${ids.length} item${ids.length > 1 ? 's' : ''}`)
+    return ids.length
+  },
+
+  batchAssignProject: async (ids, projectId) => {
+    const toast = useToastStore.getState()
+    if (ids.length === 0) return 0
+
+    const now = new Date().toISOString()
+    const { error } = await supabase
+      .from('items')
+      .update({ project_id: projectId, updated_at: now })
+      .in('id', ids)
+
+    if (error) {
+      set({ error: error.message })
+      toast.error('Failed to assign project')
+      return 0
+    }
+
+    // Re-fetch items with project data
+    const { data: updatedItems } = await supabase
+      .from('items')
+      .select('*, category:categories(*), project:projects(*)')
+      .in('id', ids)
+
+    if (updatedItems) {
+      const updatedMap = new Map(updatedItems.map((i) => [i.id, i]))
+      set({
+        items: get().items.map((item) => updatedMap.get(item.id) ?? item),
+      })
+    }
+    const action = projectId ? 'assigned to project' : 'removed from project'
+    toast.success(`${ids.length} item${ids.length > 1 ? 's' : ''} ${action}`)
+    return ids.length
   },
 
   addDependency: async (predecessorId, successorId) => {

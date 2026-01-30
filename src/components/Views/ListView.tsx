@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useCallback } from 'react'
 import {
   useReactTable,
   getCoreRowModel,
@@ -28,7 +28,17 @@ const columnHelper = createColumnHelper<TreeItem>()
 
 export default function ListView() {
   const { items, toggleComplete, getSubtaskProgress } = useItemStore()
-  const { filters, openViewItemModal } = useViewStore()
+  const {
+    filters,
+    openViewItemModal,
+    selectionMode,
+    selectedItemIds,
+    enterSelectionMode,
+    exitSelectionMode,
+    toggleItemSelection,
+    selectAllItems,
+    clearSelection,
+  } = useViewStore()
   const getFilteredItems = useItemStore((state) => state.getFilteredItems)
   const [sorting, setSorting] = useState<SortingState>([])
   const [completedExpanded, setCompletedExpanded] = useState(false)
@@ -80,8 +90,62 @@ export default function ListView() {
     return { activeItems: active, completedItems: completed }
   }, [filteredItems])
 
+  // Check if all active items are selected
+  const allActiveSelected = activeItems.length > 0 && activeItems.every(item => selectedItemIds.includes(item.id))
+  const someActiveSelected = activeItems.some(item => selectedItemIds.includes(item.id))
+
+  // Handle select all toggle
+  const handleSelectAllActive = useCallback(() => {
+    if (allActiveSelected) {
+      clearSelection()
+    } else {
+      selectAllItems(activeItems.map(item => item.id))
+    }
+  }, [allActiveSelected, activeItems, clearSelection, selectAllItems])
+
+  // Handle row click (open modal or toggle selection based on mode)
+  const handleRowClick = useCallback((itemId: string) => {
+    if (selectionMode) {
+      toggleItemSelection(itemId)
+    } else {
+      openViewItemModal(itemId)
+    }
+  }, [selectionMode, toggleItemSelection, openViewItemModal])
+
+  // Long press to enter selection mode
+  const handleRowLongPress = useCallback((itemId: string) => {
+    if (!selectionMode) {
+      enterSelectionMode()
+      toggleItemSelection(itemId)
+    }
+  }, [selectionMode, enterSelectionMode, toggleItemSelection])
+
   const columns = useMemo(
     () => [
+      // Selection checkbox column (only in selection mode)
+      ...(selectionMode ? [
+        columnHelper.display({
+          id: 'selection',
+          header: () => (
+            <div onClick={(e) => e.stopPropagation()}>
+              <Checkbox
+                checked={allActiveSelected}
+                indeterminate={someActiveSelected && !allActiveSelected}
+                onChange={handleSelectAllActive}
+              />
+            </div>
+          ),
+          cell: ({ row }) => (
+            <div onClick={(e) => e.stopPropagation()}>
+              <Checkbox
+                checked={selectedItemIds.includes(row.original.id)}
+                onChange={() => toggleItemSelection(row.original.id)}
+              />
+            </div>
+          ),
+          size: 40,
+        }),
+      ] : []),
       columnHelper.display({
         id: 'expander',
         header: '',
@@ -117,6 +181,8 @@ export default function ListView() {
         id: 'checkbox',
         header: '',
         cell: ({ row }) => {
+          if (selectionMode) return null
+
           const hasSubtasks = row.subRows && row.subRows.length > 0
 
           // For parent tasks with subtasks, show progress ring
@@ -230,7 +296,7 @@ export default function ListView() {
         ),
       }),
     ],
-    [toggleComplete]
+    [toggleComplete, selectionMode, allActiveSelected, someActiveSelected, handleSelectAllActive, selectedItemIds, toggleItemSelection, getSubtaskProgress]
   )
 
   const activeTable = useReactTable({
@@ -295,14 +361,20 @@ export default function ListView() {
     <tbody>
       {table.getRowModel().rows.map((row, index) => {
         const overdue = row.original.due_date ? isOverdue(row.original.due_date) && !row.original.completed : false
+        const isSelected = selectedItemIds.includes(row.original.id)
         return (
           <tr
             key={row.id}
-            onClick={() => openViewItemModal(row.original.id)}
+            onClick={() => handleRowClick(row.original.id)}
+            onContextMenu={(e) => {
+              e.preventDefault()
+              handleRowLongPress(row.original.id)
+            }}
             className={clsx(
               'cursor-pointer border-b border-theme-border-primary hover:bg-theme-bg-hover transition-all-fast',
               overdue && 'bg-theme-accent-danger/5',
-              row.original.completed && 'opacity-60'
+              row.original.completed && 'opacity-60',
+              isSelected && 'bg-theme-accent-primary/10'
             )}
             style={{ animationDelay: `${(startIndex + index) * 30}ms` }}
           >
@@ -326,6 +398,24 @@ export default function ListView() {
 
   return (
     <div className="space-y-4">
+      {/* Selection mode toggle */}
+      <div className="flex items-center justify-end gap-2">
+        <button
+          onClick={() => selectionMode ? exitSelectionMode() : enterSelectionMode()}
+          className={clsx(
+            'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all-fast btn-press',
+            selectionMode
+              ? 'bg-theme-accent-primary text-white'
+              : 'text-theme-text-secondary hover:bg-theme-bg-hover'
+          )}
+        >
+          <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+          </svg>
+          {selectionMode ? 'Cancel Selection' : 'Select'}
+        </button>
+      </div>
+
       {/* Active Items */}
       <div className="rounded-xl bg-theme-bg-card shadow-card border border-theme-border-primary transition-theme animate-fade-in">
         <div className="overflow-x-auto">

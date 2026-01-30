@@ -3,12 +3,13 @@ import { useAIStore } from '@/stores/aiStore'
 import clsx from 'clsx'
 
 export default function CommandBar() {
-  const { commandBarOpen, closeCommandBar, isProcessing, processNaturalLanguage, executeAction } =
+  const { commandBarOpen, closeCommandBar, isProcessing, processNaturalLanguage, executeAction, apiKey } =
     useAIStore()
   const [input, setInput] = useState('')
   const [recentCommands, setRecentCommands] = useState<string[]>([])
   const inputRef = useRef<HTMLInputElement>(null)
   const overlayRef = useRef<HTMLDivElement>(null)
+  const hasAI = !!apiKey
 
   // Focus input when opened
   useEffect(() => {
@@ -111,7 +112,7 @@ export default function CommandBar() {
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Type a command... (e.g., 'add task call mom tomorrow')"
+              placeholder={hasAI ? "Type a command... (e.g., 'add task call mom tomorrow')" : "Type a task name and press Enter to add it"}
               disabled={isProcessing}
               className="flex-1 bg-transparent text-lg text-theme-text-primary placeholder:text-theme-text-muted focus:outline-none disabled:opacity-50"
             />
@@ -123,16 +124,30 @@ export default function CommandBar() {
 
         {/* Suggestions / Help */}
         <div className="px-4 py-3">
+          {!hasAI && (
+            <div className="mb-3 rounded-lg bg-theme-accent-warning/10 border border-theme-accent-warning/20 px-3 py-2 text-sm text-theme-accent-warning">
+              Quick mode: type a task name and press Enter. Add an API key in Settings for AI-powered commands.
+            </div>
+          )}
+
           <div className="text-xs font-medium text-theme-text-muted uppercase tracking-wider mb-2">
-            Try saying
+            {hasAI ? 'Try saying' : 'Examples'}
           </div>
           <div className="space-y-1">
-            {[
-              'remind me to call mom tomorrow',
-              'add work task: review quarterly report by Friday',
-              'schedule meeting with John next Tuesday at 2pm',
-              'mark buy groceries as done',
-            ].map((suggestion) => (
+            {(hasAI
+              ? [
+                  'remind me to call mom tomorrow',
+                  'add work task: review quarterly report by Friday',
+                  'schedule meeting with John next Tuesday at 2pm',
+                  'mark buy groceries as done',
+                ]
+              : [
+                  'Call mom',
+                  'Review quarterly report',
+                  'Buy groceries',
+                  'Finish project proposal',
+                ]
+            ).map((suggestion) => (
               <button
                 key={suggestion}
                 onClick={() => setInput(suggestion)}
@@ -182,7 +197,7 @@ export default function CommandBar() {
                 d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
               />
             </svg>
-            Powered by Claude
+            {hasAI ? 'Powered by Claude' : 'Quick Add Mode'}
           </span>
           <span>
             <kbd className="rounded bg-theme-bg-tertiary px-1.5 py-0.5 font-mono">Esc</kbd> to close

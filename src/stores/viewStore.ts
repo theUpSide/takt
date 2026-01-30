@@ -13,6 +13,10 @@ interface ViewState {
   itemModalType: 'task' | 'event'
   selectedItemId: string | null
 
+  // Batch selection state
+  selectionMode: boolean
+  selectedItemIds: string[]
+
   // Actions
   setCurrentView: (view: ViewType) => void
   toggleSidebar: () => void
@@ -26,6 +30,13 @@ interface ViewState {
   openEditItemModal: (itemId: string) => void
   openViewItemModal: (itemId: string) => void
   closeItemModal: () => void
+
+  // Selection actions
+  enterSelectionMode: () => void
+  exitSelectionMode: () => void
+  toggleItemSelection: (itemId: string) => void
+  selectAllItems: (itemIds: string[]) => void
+  clearSelection: () => void
 }
 
 const defaultFilters: ItemFilters = {
@@ -51,6 +62,9 @@ export const useViewStore = create<ViewState>()(
       itemModalMode: 'create',
       itemModalType: 'task',
       selectedItemId: null,
+
+      selectionMode: false,
+      selectedItemIds: [],
 
       setCurrentView: (view) => set({ currentView: view }),
 
@@ -100,6 +114,30 @@ export const useViewStore = create<ViewState>()(
           itemModalOpen: false,
           selectedItemId: null,
         }),
+
+      // Selection actions
+      enterSelectionMode: () =>
+        set({
+          selectionMode: true,
+          selectedItemIds: [],
+        }),
+
+      exitSelectionMode: () =>
+        set({
+          selectionMode: false,
+          selectedItemIds: [],
+        }),
+
+      toggleItemSelection: (itemId) =>
+        set((state) => ({
+          selectedItemIds: state.selectedItemIds.includes(itemId)
+            ? state.selectedItemIds.filter((id) => id !== itemId)
+            : [...state.selectedItemIds, itemId],
+        })),
+
+      selectAllItems: (itemIds) => set({ selectedItemIds: itemIds }),
+
+      clearSelection: () => set({ selectedItemIds: [] }),
     }),
     {
       name: 'takt-view-store',

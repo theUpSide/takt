@@ -382,8 +382,16 @@ export const useAIStore = create<AIState>()(
         const toast = useToastStore.getState()
 
         if (!apiKey) {
-          toast.error('Please set your Anthropic API key in Settings')
-          return { type: 'unknown', message: 'API key not configured' }
+          // Fallback: create a simple task directly without AI
+          const today = getTodayString()
+          return {
+            type: 'create_task',
+            data: {
+              title: input,
+              due_date: today,
+            },
+            message: 'Creating task (no AI key configured)',
+          }
         }
 
         set({ isProcessing: true, lastError: null })

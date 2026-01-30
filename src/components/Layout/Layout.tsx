@@ -7,6 +7,7 @@ import { useItemStore } from '@/stores/itemStore'
 import { useCategoryStore } from '@/stores/categoryStore'
 import { useThemeStore } from '@/stores/themeStore'
 import ItemModal from '@/components/Items/ItemModal'
+import BatchActionToolbar from '@/components/Common/BatchActionToolbar'
 
 export default function Layout() {
   const sidebarOpen = useViewStore((state) => state.sidebarOpen)
@@ -48,6 +49,7 @@ export default function Layout() {
         </main>
       </div>
       <ItemModal />
+      <BatchActionToolbar />
     </div>
   )
 }
