@@ -4,6 +4,13 @@ import { formatDateTime } from '@/lib/dateUtils'
 import { useToastStore } from '@/stores/toastStore'
 import clsx from 'clsx'
 
+interface UserPhone {
+  id: string
+  phone: string
+  label: string
+  created_at: string
+}
+
 interface ParsedItem {
   type: string
   title: string
@@ -62,39 +69,40 @@ export default function SMSLogViewer() {
   const [logs, setLogs] = useState<SMSLogEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [phone, setPhone] = useState('')
-  const [savedPhone, setSavedPhone] = useState<string | null>(null)
+  const [phones, setPhones] = useState<UserPhone[]>([])
+  const [newPhone, setNewPhone] = useState('')
+  const [newLabel, setNewLabel] = useState('Personal')
   const [phoneLoading, setPhoneLoading] = useState(true)
   const [phoneSaving, setPhoneSaving] = useState(false)
   const toast = useToastStore()
 
-  // Fetch user's registered phone on mount
+  // Fetch user's registered phones on mount
   useEffect(() => {
-    const fetchPhone = async () => {
+    const fetchPhones = async () => {
       try {
         const { data: session } = await supabase.auth.getSession()
         if (!session?.session?.user) return
 
         const { data } = await supabase
-          .from('user_preferences')
-          .select('phone')
+          .from('user_phones')
+          .select('*')
           .eq('user_id', session.session.user.id)
-          .single()
+          .order('created_at', { ascending: true })
 
-        if (data?.phone) {
-          setSavedPhone(data.phone)
-          setPhone(data.phone)
+        if (data) {
+          setPhones(data)
         }
       } catch {
-        // No preferences yet, that's fine
+        // No phones yet, that's fine
       } finally {
         setPhoneLoading(false)
       }
     }
-    fetchPhone()
+    fetchPhones()
   }, [])
 
-  const handleSavePhone = async () => {
+  const handleAddPhone = async () => {
+    if (!newPhone.trim()) return
     setPhoneSaving(true)
     try {
       const { data: session } = await supabase.auth.getSession()
@@ -104,32 +112,56 @@ export default function SMSLogViewer() {
       }
 
       // Format phone to E.164 (add +1 if not present)
-      let formattedPhone = phone.replace(/\D/g, '') // Strip non-digits
+      let formattedPhone = newPhone.replace(/\D/g, '') // Strip non-digits
       if (formattedPhone.length === 10) {
         formattedPhone = '+1' + formattedPhone
       } else if (!formattedPhone.startsWith('+')) {
         formattedPhone = '+' + formattedPhone
       }
 
-      // Upsert user_preferences
-      const { error: upsertError } = await supabase
-        .from('user_preferences')
-        .upsert({
+      const { data, error: insertError } = await supabase
+        .from('user_phones')
+        .insert({
           user_id: session.session.user.id,
           phone: formattedPhone,
-        }, {
-          onConflict: 'user_id'
+          label: newLabel.trim() || 'Personal',
         })
+        .select()
+        .single()
 
-      if (upsertError) throw upsertError
+      if (insertError) {
+        if (insertError.code === '23505') {
+          toast.error('This phone number is already registered')
+        } else {
+          throw insertError
+        }
+        return
+      }
 
-      setSavedPhone(formattedPhone)
-      setPhone(formattedPhone)
-      toast.success('Phone number saved! SMS tasks will now create projects.')
+      setPhones((prev) => [...prev, data])
+      setNewPhone('')
+      setNewLabel('Personal')
+      toast.success(`Phone ${formattedPhone} added!`)
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to save phone')
+      toast.error(err instanceof Error ? err.message : 'Failed to add phone')
     } finally {
       setPhoneSaving(false)
+    }
+  }
+
+  const handleRemovePhone = async (phoneId: string) => {
+    try {
+      const { error: deleteError } = await supabase
+        .from('user_phones')
+        .delete()
+        .eq('id', phoneId)
+
+      if (deleteError) throw deleteError
+
+      setPhones((prev) => prev.filter((p) => p.id !== phoneId))
+      toast.success('Phone number removed')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to remove phone')
     }
   }
 
@@ -195,49 +227,81 @@ export default function SMSLogViewer() {
     <div className="space-y-6">
       {/* Phone Registration Section */}
       <div className="border-b border-theme-border-primary pb-6">
-        <h2 className="text-lg font-semibold text-theme-text-primary mb-1">Your Phone Number</h2>
+        <h2 className="text-lg font-semibold text-theme-text-primary mb-1">Your Phone Numbers</h2>
         <p className="text-sm text-theme-text-muted mb-4">
-          Register your phone to enable project creation from SMS task graphs.
+          Register phone numbers that can text the Takt app. Each number can create tasks, events, and projects via SMS.
         </p>
 
         {phoneLoading ? (
           <div className="animate-pulse h-10 bg-theme-bg-tertiary rounded-lg" />
         ) : (
-          <div className="flex gap-2">
-            <input
-              type="tel"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              placeholder="+1 555 123 4567"
-              className="flex-1 rounded-lg border border-theme-border-primary bg-theme-bg-secondary px-4 py-2.5 text-theme-text-primary placeholder:text-theme-text-muted focus:border-theme-accent-primary focus:outline-none focus:ring-2 focus:ring-theme-accent-primary/20 transition-all-fast"
-            />
-            <button
-              onClick={handleSavePhone}
-              disabled={phoneSaving || !phone.trim()}
-              className="rounded-lg bg-theme-accent-primary px-4 py-2.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50 transition-all-fast btn-press"
-            >
-              {phoneSaving ? 'Saving...' : 'Save'}
-            </button>
-          </div>
-        )}
+          <>
+            {/* Registered phones list */}
+            {phones.length > 0 && (
+              <div className="space-y-2 mb-4">
+                {phones.map((p) => (
+                  <div
+                    key={p.id}
+                    className="flex items-center justify-between rounded-lg border border-theme-accent-success/30 bg-theme-accent-success/10 px-4 py-2.5"
+                  >
+                    <div className="flex items-center gap-3">
+                      <svg className="h-4 w-4 text-theme-accent-success shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      <div>
+                        <span className="text-sm font-medium text-theme-text-primary">{p.phone}</span>
+                        <span className="ml-2 rounded-md bg-theme-bg-tertiary px-2 py-0.5 text-xs text-theme-text-muted">
+                          {p.label}
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleRemovePhone(p.id)}
+                      className="rounded-md p-1.5 text-theme-text-muted hover:text-theme-accent-danger hover:bg-theme-accent-danger/10 transition-all-fast"
+                      title="Remove phone"
+                    >
+                      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
 
-        {savedPhone && (
-          <div className="mt-3 rounded-lg border border-theme-accent-success/30 bg-theme-accent-success/10 p-3">
-            <div className="flex items-center gap-2 text-theme-accent-success text-sm">
-              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
-              <span>Phone registered: <strong>{savedPhone}</strong></span>
+            {/* Add new phone form */}
+            <div className="flex gap-2">
+              <input
+                type="tel"
+                value={newPhone}
+                onChange={(e) => setNewPhone(e.target.value)}
+                placeholder="+1 555 123 4567"
+                className="flex-1 rounded-lg border border-theme-border-primary bg-theme-bg-secondary px-4 py-2.5 text-theme-text-primary placeholder:text-theme-text-muted focus:border-theme-accent-primary focus:outline-none focus:ring-2 focus:ring-theme-accent-primary/20 transition-all-fast"
+              />
+              <select
+                value={newLabel}
+                onChange={(e) => setNewLabel(e.target.value)}
+                className="rounded-lg border border-theme-border-primary bg-theme-bg-secondary px-3 py-2.5 text-sm text-theme-text-primary focus:border-theme-accent-primary focus:outline-none focus:ring-2 focus:ring-theme-accent-primary/20 transition-all-fast"
+              >
+                <option value="Personal">Personal</option>
+                <option value="Work">Work</option>
+                <option value="Family">Family</option>
+                <option value="Other">Other</option>
+              </select>
+              <button
+                onClick={handleAddPhone}
+                disabled={phoneSaving || !newPhone.trim()}
+                className="rounded-lg bg-theme-accent-primary px-4 py-2.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50 transition-all-fast btn-press"
+              >
+                {phoneSaving ? 'Adding...' : 'Add'}
+              </button>
             </div>
-            <p className="mt-1 text-xs text-theme-text-muted">
-              Text to your Twilio number to create tasks. Use task tables with dependencies to auto-create projects.
-            </p>
-          </div>
+          </>
         )}
 
-        {!savedPhone && !phoneLoading && (
+        {phones.length === 0 && !phoneLoading && (
           <p className="mt-2 text-xs text-theme-accent-warning">
-            Without a registered phone, SMS task graphs won't create projects automatically.
+            No phones registered. Add a phone number to enable SMS features.
           </p>
         )}
       </div>

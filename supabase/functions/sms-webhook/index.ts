@@ -817,7 +817,7 @@ Use these EXACT dates when the user mentions relative days.`
           projectTitle = parsed.project_title
           // We need to get the user from their phone number
           const { data: userPrefs } = await supabase
-            .from('user_preferences')
+            .from('user_phones')
             .select('user_id')
             .eq('phone', from)
             .single()
