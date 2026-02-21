@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { supabase } from '@/lib/supabase'
 import { useTimekeepingStore } from '@/stores/timekeepingStore'
 import { useToastStore } from '@/stores/toastStore'
 import { getTodayString } from '@/lib/dateUtils'
@@ -22,6 +23,111 @@ export default function ExportDialog({ onClose }: ExportDialogProps) {
   const [includeExpenses, setIncludeExpenses] = useState(true)
   const [exporting, setExporting] = useState(false)
 
+  // Try server-side export via Edge Function, fall back to client-side
+  const handleExport = async () => {
+    setExporting(true)
+
+    try {
+      // Attempt server-side export
+      const exported = await tryEdgeFunctionExport()
+      if (exported) {
+        onClose()
+        return
+      }
+
+      // Fallback to client-side export
+      clientSideExport()
+      onClose()
+    } catch {
+      toast.error('Export failed')
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  const tryEdgeFunctionExport = async (): Promise<boolean> => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) return false
+
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+      if (!supabaseUrl) return false
+
+      const response = await fetch(`${supabaseUrl}/functions/v1/export-timekeeping`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          start_date: startDate,
+          end_date: endDate,
+          format: exportFormat,
+          include_expenses: includeExpenses,
+        }),
+      })
+
+      if (!response.ok) return false
+
+      if (exportFormat === 'csv') {
+        const blob = await response.blob()
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `takt-timekeeping-${startDate}-to-${endDate}.csv`
+        a.click()
+        URL.revokeObjectURL(url)
+        toast.success('CSV exported (server)')
+      } else {
+        const html = await response.text()
+        const win = window.open('', '_blank')
+        if (win) {
+          win.document.write(html)
+          win.document.close()
+          win.print()
+        }
+        toast.success('PDF opened for printing (server)')
+      }
+      return true
+    } catch {
+      // Edge Function unavailable, fall back silently
+      return false
+    }
+  }
+
+  const clientSideExport = () => {
+    if (exportFormat === 'csv') {
+      const csv = generateCSV()
+      const blob = new Blob([csv], { type: 'text/csv' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `takt-timekeeping-${startDate}-to-${endDate}.csv`
+      a.click()
+      URL.revokeObjectURL(url)
+      toast.success('CSV exported')
+    } else {
+      const filteredTime = timeEntries.filter(
+        (e) => e.entry_date >= startDate && e.entry_date <= endDate
+      )
+      const filteredExpenses = includeExpenses
+        ? expenses.filter((e) => e.expense_date >= startDate && e.expense_date <= endDate)
+        : []
+
+      const totalHours = filteredTime.reduce((s, e) => s + Number(e.hours), 0)
+      const totalExpenseAmt = filteredExpenses.reduce((s, e) => s + Number(e.amount), 0)
+
+      const html = buildPdfHtml(filteredTime, filteredExpenses, startDate, endDate, totalHours, totalExpenseAmt)
+      const win = window.open('', '_blank')
+      if (win) {
+        win.document.write(html)
+        win.document.close()
+        win.print()
+      }
+      toast.success('PDF opened for printing')
+    }
+  }
+
   const generateCSV = () => {
     const filteredTime = timeEntries.filter(
       (e) => e.entry_date >= startDate && e.entry_date <= endDate
@@ -32,7 +138,6 @@ export default function ExportDialog({ onClose }: ExportDialogProps) {
 
     const lines: string[] = []
 
-    // Time entries section
     lines.push('TIME ENTRIES')
     lines.push('Date,Hours,Category,Description,Billable,Client,Rate Override,Logged At')
     for (const entry of filteredTime) {
@@ -65,7 +170,6 @@ export default function ExportDialog({ onClose }: ExportDialogProps) {
       }
     }
 
-    // Summary
     lines.push('')
     lines.push('SUMMARY')
     lines.push(`Total Hours,${filteredTime.reduce((s, e) => s + Number(e.hours), 0)}`)
@@ -74,49 +178,6 @@ export default function ExportDialog({ onClose }: ExportDialogProps) {
     }
 
     return lines.join('\n')
-  }
-
-  const handleExport = () => {
-    setExporting(true)
-
-    try {
-      if (exportFormat === 'csv') {
-        const csv = generateCSV()
-        const blob = new Blob([csv], { type: 'text/csv' })
-        const url = URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        a.download = `takt-timekeeping-${startDate}-to-${endDate}.csv`
-        a.click()
-        URL.revokeObjectURL(url)
-        toast.success('CSV exported')
-      } else {
-        // PDF: generate a simple printable HTML and open in new window for print
-        const filteredTime = timeEntries.filter(
-          (e) => e.entry_date >= startDate && e.entry_date <= endDate
-        )
-        const filteredExpenses = includeExpenses
-          ? expenses.filter((e) => e.expense_date >= startDate && e.expense_date <= endDate)
-          : []
-
-        const totalHours = filteredTime.reduce((s, e) => s + Number(e.hours), 0)
-        const totalExpenseAmt = filteredExpenses.reduce((s, e) => s + Number(e.amount), 0)
-
-        const html = buildPdfHtml(filteredTime, filteredExpenses, startDate, endDate, totalHours, totalExpenseAmt)
-        const win = window.open('', '_blank')
-        if (win) {
-          win.document.write(html)
-          win.document.close()
-          win.print()
-        }
-        toast.success('PDF opened for printing')
-      }
-      onClose()
-    } catch {
-      toast.error('Export failed')
-    } finally {
-      setExporting(false)
-    }
   }
 
   return (

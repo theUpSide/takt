@@ -14,6 +14,8 @@ const SMS_SYSTEM_PROMPT = `You are an expert assistant for a task management app
 3. Batch operations (reschedule, complete, delete multiple)
 4. Task decomposition (breaking down complex tasks)
 5. Completing or updating specific tasks
+6. Logging time entries (hours worked by category)
+7. Logging business expenses
 
 ## DETERMINE THE ACTION TYPE
 
@@ -51,6 +53,19 @@ First, identify what the user wants:
 
 **DELETE** - User wants to remove task(s):
 - "delete [task]", "remove [task]", "cancel [task]"
+
+**LOG_TIME** - User is logging time/hours worked:
+- "logged 2h product dev - built SAM scanner"
+- "logged 1.5 hours client work - review for ATC"
+- "30min admin - invoicing"
+- "3h content - wrote blog post about consulting"
+- Keywords: "logged", "log", "spent [time]", "[number]h", "[number] hours", "[number]min"
+
+**LOG_EXPENSE** - User is logging a business expense:
+- "expense $49.99 software_tools - Claude Pro subscription"
+- "spent $150 equipment - new keyboard"
+- "expense $29 professional_dev - Udemy course"
+- Keywords: "expense", "spent $", "bought", "$[amount]"
 
 ## RESPONSE FORMAT
 
@@ -162,6 +177,44 @@ IMPORTANT for task_graph:
 - Parse "1, 2" in a Predecessor column as predecessors: ["1", "2"]
 - Parse "—" or empty predecessor cells as predecessors: []
 
+### For LOG_TIME:
+{
+  "action": "log_time",
+  "hours": 2.0,
+  "category": "product_dev" | "bd_outreach" | "client_work" | "content" | "admin" | "professional_dev",
+  "description": "What was done",
+  "entry_date": "YYYY-MM-DD",
+  "billable": false,
+  "client_name": null
+}
+
+LOG_TIME rules:
+- Parse hours from various formats: "2h" = 2, "1.5 hours" = 1.5, "30min" = 0.5, "90min" = 1.5
+- Map to the EXACT category values: product_dev, bd_outreach, client_work, content, admin, professional_dev
+- Natural language mapping: "product dev" / "building" / "coding" -> product_dev, "BD" / "outreach" / "sales" -> bd_outreach, "client" / "consulting" -> client_work, "content" / "writing" / "blog" -> content, "admin" / "invoicing" / "bookkeeping" -> admin, "learning" / "course" / "training" -> professional_dev
+- Set billable=true ONLY for client_work category
+- Extract client_name from context when billable (e.g., "client work for ATC" -> client_name: "ATC")
+- Default entry_date to today unless specified (e.g., "yesterday" = yesterday's date)
+
+### For LOG_EXPENSE:
+{
+  "action": "log_expense",
+  "amount": 49.99,
+  "category": "software_tools" | "equipment" | "professional_dev" | "travel" | "marketing" | "insurance" | "legal_professional" | "office_supplies" | "other",
+  "vendor": "Vendor Name" | null,
+  "description": "What the expense is for",
+  "expense_date": "YYYY-MM-DD",
+  "is_recurring": false
+}
+
+LOG_EXPENSE rules:
+- Parse amount from "$49.99", "$150", "49.99 dollars", etc.
+- Map to EXACT category values: software_tools, equipment, professional_dev, travel, marketing, insurance, legal_professional, office_supplies, other
+- Natural language mapping: "software" / "subscription" / "SaaS" / "tools" -> software_tools, "hardware" / "keyboard" / "monitor" -> equipment, "course" / "training" / "book" / "cert" -> professional_dev, "flight" / "hotel" / "uber" -> travel, "ads" / "LinkedIn" / "business cards" -> marketing, "insurance" -> insurance, "lawyer" / "CPA" / "legal" / "accountant" -> legal_professional, "supplies" / "paper" / "ink" -> office_supplies
+- Extract vendor from context (e.g., "Claude Pro subscription" -> vendor: "Anthropic", "Udemy course" -> vendor: "Udemy")
+- Set is_recurring=true for subscriptions (monthly/annual patterns like "subscription", "monthly", "annual plan")
+- Default expense_date to today unless specified
+
 ## RECURRING TASK DETECTION
 When creating tasks, detect recurring patterns:
 - "weekly standup" -> suggested_recurring: { frequency: "weekly" }
@@ -220,6 +273,21 @@ Output: {"action":"create","is_chain":true,"items":[{"type":"task","title":"Desi
 
 Input: "| ID | Task | Predecessor(s) |\n| 1 | Design | — |\n| 2 | Review | 1 |\n| 3 | Implement | 1, 2 |"
 Output: {"action":"task_graph","tasks":[{"temp_id":"1","title":"Design","description":null,"predecessors":[]},{"temp_id":"2","title":"Review","description":null,"predecessors":["1"]},{"temp_id":"3","title":"Implement","description":null,"predecessors":["1","2"]}],"category_hint":"Work","message":"Created 3 tasks with dependencies"}
+
+Input: "logged 2h product dev - built SAM scanner"
+Output: {"action":"log_time","hours":2,"category":"product_dev","description":"Built SAM scanner","entry_date":"[today]","billable":false,"client_name":null}
+
+Input: "logged 1.5 hours client work - review for ATC"
+Output: {"action":"log_time","hours":1.5,"category":"client_work","description":"Review for ATC","entry_date":"[today]","billable":true,"client_name":"ATC"}
+
+Input: "30min admin - invoicing"
+Output: {"action":"log_time","hours":0.5,"category":"admin","description":"Invoicing","entry_date":"[today]","billable":false,"client_name":null}
+
+Input: "expense $49.99 software_tools - Claude Pro subscription"
+Output: {"action":"log_expense","amount":49.99,"category":"software_tools","vendor":"Anthropic","description":"Claude Pro subscription","expense_date":"[today]","is_recurring":true}
+
+Input: "spent $150 equipment - new keyboard"
+Output: {"action":"log_expense","amount":150,"category":"equipment","vendor":null,"description":"New keyboard","expense_date":"[today]","is_recurring":false}
 
 ## CRITICAL RULES
 - ALWAYS determine the correct action type first
@@ -933,6 +1001,191 @@ Use these EXACT dates when the user mentions relative days.`
           body: body,
           parsed_result: parsed,
           items_created: createdTasks.length,
+        })
+        break
+      }
+
+      // ============ LOG_TIME ACTION ============
+      case 'log_time': {
+        // Look up user_id from phone number
+        const { data: userPhone } = await supabase
+          .from('user_phones')
+          .select('user_id')
+          .eq('phone', from)
+          .single()
+
+        if (!userPhone?.user_id) {
+          confirmationMsg = "I don't recognize this phone number. Please register it in the Takt app first."
+          await logSMS(supabase, {
+            twilio_sid: messageSid,
+            from_number: from,
+            body: body,
+            parsed_result: parsed,
+            error: 'Phone number not found in user_phones',
+          })
+          break
+        }
+
+        // Validate category
+        const validTimeCategories = ['product_dev', 'bd_outreach', 'client_work', 'content', 'admin', 'professional_dev']
+        const timeCategory = validTimeCategories.includes(parsed.category) ? parsed.category : null
+
+        if (!timeCategory || !parsed.hours || parsed.hours <= 0) {
+          confirmationMsg = "Couldn't parse your time entry. Try: \"logged 2h product dev - description\""
+          await logSMS(supabase, {
+            twilio_sid: messageSid,
+            from_number: from,
+            body: body,
+            parsed_result: parsed,
+            error: `Invalid time entry: category=${parsed.category}, hours=${parsed.hours}`,
+          })
+          break
+        }
+
+        const timeEntryDate = parsed.entry_date || dateInfo.today
+
+        const { error: timeError } = await supabase
+          .from('time_entries')
+          .insert({
+            user_id: userPhone.user_id,
+            entry_date: timeEntryDate,
+            hours: parsed.hours,
+            category: timeCategory,
+            description: parsed.description || null,
+            billable: parsed.billable || false,
+            client_name: parsed.client_name || null,
+          })
+          .select()
+          .single()
+
+        if (timeError) {
+          console.error('Error creating time entry:', timeError)
+          confirmationMsg = `Failed to log time: ${timeError.message}`
+          await logSMS(supabase, {
+            twilio_sid: messageSid,
+            from_number: from,
+            body: body,
+            parsed_result: parsed,
+            error: `DB error: ${timeError.message}`,
+          })
+          break
+        }
+
+        const timeCategoryLabels: Record<string, string> = {
+          product_dev: 'Product Dev',
+          bd_outreach: 'BD & Outreach',
+          client_work: 'Client Work',
+          content: 'Content',
+          admin: 'Admin',
+          professional_dev: 'Prof. Dev',
+        }
+        const timeCatLabel = timeCategoryLabels[timeCategory] || timeCategory
+        const billableTag = parsed.billable ? ' (billable)' : ''
+        const clientTag = parsed.client_name ? ` for ${parsed.client_name}` : ''
+
+        confirmationMsg = `Logged ${parsed.hours}h ${timeCatLabel}${clientTag}${billableTag}: "${parsed.description || 'No description'}"`
+
+        await logSMS(supabase, {
+          twilio_sid: messageSid,
+          from_number: from,
+          body: body,
+          parsed_result: parsed,
+          items_created: 1,
+        })
+        break
+      }
+
+      // ============ LOG_EXPENSE ACTION ============
+      case 'log_expense': {
+        // Look up user_id from phone number
+        const { data: expUserPhone } = await supabase
+          .from('user_phones')
+          .select('user_id')
+          .eq('phone', from)
+          .single()
+
+        if (!expUserPhone?.user_id) {
+          confirmationMsg = "I don't recognize this phone number. Please register it in the Takt app first."
+          await logSMS(supabase, {
+            twilio_sid: messageSid,
+            from_number: from,
+            body: body,
+            parsed_result: parsed,
+            error: 'Phone number not found in user_phones',
+          })
+          break
+        }
+
+        const validExpenseCategories = [
+          'software_tools', 'equipment', 'professional_dev', 'travel',
+          'marketing', 'insurance', 'legal_professional', 'office_supplies', 'other',
+        ]
+        const expenseCategory = validExpenseCategories.includes(parsed.category) ? parsed.category : null
+
+        if (!expenseCategory || !parsed.amount || parsed.amount <= 0) {
+          confirmationMsg = "Couldn't parse your expense. Try: \"expense $49.99 software_tools - description\""
+          await logSMS(supabase, {
+            twilio_sid: messageSid,
+            from_number: from,
+            body: body,
+            parsed_result: parsed,
+            error: `Invalid expense: category=${parsed.category}, amount=${parsed.amount}`,
+          })
+          break
+        }
+
+        const expenseEntryDate = parsed.expense_date || dateInfo.today
+
+        const { error: expenseError } = await supabase
+          .from('expenses')
+          .insert({
+            user_id: expUserPhone.user_id,
+            expense_date: expenseEntryDate,
+            amount: parsed.amount,
+            category: expenseCategory,
+            vendor: parsed.vendor || null,
+            description: parsed.description || null,
+            is_recurring: parsed.is_recurring || false,
+          })
+          .select()
+          .single()
+
+        if (expenseError) {
+          console.error('Error creating expense:', expenseError)
+          confirmationMsg = `Failed to log expense: ${expenseError.message}`
+          await logSMS(supabase, {
+            twilio_sid: messageSid,
+            from_number: from,
+            body: body,
+            parsed_result: parsed,
+            error: `DB error: ${expenseError.message}`,
+          })
+          break
+        }
+
+        const expCategoryLabels: Record<string, string> = {
+          software_tools: 'Software & Tools',
+          equipment: 'Equipment',
+          professional_dev: 'Prof. Dev',
+          travel: 'Travel',
+          marketing: 'Marketing',
+          insurance: 'Insurance',
+          legal_professional: 'Legal & Prof.',
+          office_supplies: 'Office Supplies',
+          other: 'Other',
+        }
+        const expCatLabel = expCategoryLabels[expenseCategory] || expenseCategory
+        const recurringTag = parsed.is_recurring ? ' (recurring)' : ''
+        const vendorTag = parsed.vendor ? ` from ${parsed.vendor}` : ''
+
+        confirmationMsg = `Logged $${Number(parsed.amount).toFixed(2)} ${expCatLabel}${vendorTag}${recurringTag}: "${parsed.description || 'No description'}"`
+
+        await logSMS(supabase, {
+          twilio_sid: messageSid,
+          from_number: from,
+          body: body,
+          parsed_result: parsed,
+          items_created: 1,
         })
         break
       }
