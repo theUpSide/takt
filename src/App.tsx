@@ -8,6 +8,7 @@ import KanbanView from '@/components/Views/KanbanView'
 import ListView from '@/components/Views/ListView'
 import GanttView from '@/components/Views/GanttView'
 import DailyPlannerView from '@/components/Views/DailyPlannerView'
+import TimekeepingView from '@/components/Views/TimekeepingView'
 import SettingsPage from '@/pages/SettingsPage'
 import ToastContainer from '@/components/Common/Toast'
 import CommandBar from '@/components/Common/CommandBar'
@@ -63,6 +64,7 @@ function App() {
           <Route path="list" element={<ListView />} />
           <Route path="gantt" element={<GanttView />} />
           <Route path="planner" element={<DailyPlannerView />} />
+          <Route path="time" element={<TimekeepingView />} />
           <Route path="settings" element={<SettingsPage />} />
         </Route>
         <Route path="/" element={<Navigate to="/app" replace />} />

@@ -1,6 +1,6 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import Anthropic from 'https://esm.sh/@anthropic-ai/sdk@0.24.0'
+import Anthropic from 'https://esm.sh/@anthropic-ai/sdk@0.71.2'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -14,6 +14,8 @@ const SMS_SYSTEM_PROMPT = `You are an expert assistant for a task management app
 3. Batch operations (reschedule, complete, delete multiple)
 4. Task decomposition (breaking down complex tasks)
 5. Completing or updating specific tasks
+6. Logging time entries (hours worked by category)
+7. Logging business expenses
 
 ## DETERMINE THE ACTION TYPE
 
@@ -51,6 +53,19 @@ First, identify what the user wants:
 
 **DELETE** - User wants to remove task(s):
 - "delete [task]", "remove [task]", "cancel [task]"
+
+**LOG_TIME** - User is logging time/hours worked:
+- "logged 2h product dev - built SAM scanner"
+- "logged 1.5 hours client work - review for ATC"
+- "30min admin - invoicing"
+- "3h content - wrote blog post about consulting"
+- Keywords: "logged", "log", "spent [time]", "[number]h", "[number] hours", "[number]min"
+
+**LOG_EXPENSE** - User is logging a business expense:
+- "expense $49.99 software_tools - Claude Pro subscription"
+- "spent $150 equipment - new keyboard"
+- "expense $29 professional_dev - Udemy course"
+- Keywords: "expense", "spent $", "bought", "$[amount]"
 
 ## RESPONSE FORMAT
 
@@ -162,6 +177,44 @@ IMPORTANT for task_graph:
 - Parse "1, 2" in a Predecessor column as predecessors: ["1", "2"]
 - Parse "—" or empty predecessor cells as predecessors: []
 
+### For LOG_TIME:
+{
+  "action": "log_time",
+  "hours": 2.0,
+  "category": "product_dev" | "bd_outreach" | "client_work" | "content" | "admin" | "professional_dev",
+  "description": "What was done",
+  "entry_date": "YYYY-MM-DD",
+  "billable": false,
+  "client_name": null
+}
+
+LOG_TIME rules:
+- Parse hours from various formats: "2h" = 2, "1.5 hours" = 1.5, "30min" = 0.5, "90min" = 1.5
+- Map to the EXACT category values: product_dev, bd_outreach, client_work, content, admin, professional_dev
+- Natural language mapping: "product dev" / "building" / "coding" -> product_dev, "BD" / "outreach" / "sales" -> bd_outreach, "client" / "consulting" -> client_work, "content" / "writing" / "blog" -> content, "admin" / "invoicing" / "bookkeeping" -> admin, "learning" / "course" / "training" -> professional_dev
+- Set billable=true ONLY for client_work category
+- Extract client_name from context when billable (e.g., "client work for ATC" -> client_name: "ATC")
+- Default entry_date to today unless specified (e.g., "yesterday" = yesterday's date)
+
+### For LOG_EXPENSE:
+{
+  "action": "log_expense",
+  "amount": 49.99,
+  "category": "software_tools" | "equipment" | "professional_dev" | "travel" | "marketing" | "insurance" | "legal_professional" | "office_supplies" | "other",
+  "vendor": "Vendor Name" | null,
+  "description": "What the expense is for",
+  "expense_date": "YYYY-MM-DD",
+  "is_recurring": false
+}
+
+LOG_EXPENSE rules:
+- Parse amount from "$49.99", "$150", "49.99 dollars", etc.
+- Map to EXACT category values: software_tools, equipment, professional_dev, travel, marketing, insurance, legal_professional, office_supplies, other
+- Natural language mapping: "software" / "subscription" / "SaaS" / "tools" -> software_tools, "hardware" / "keyboard" / "monitor" -> equipment, "course" / "training" / "book" / "cert" -> professional_dev, "flight" / "hotel" / "uber" -> travel, "ads" / "LinkedIn" / "business cards" -> marketing, "insurance" -> insurance, "lawyer" / "CPA" / "legal" / "accountant" -> legal_professional, "supplies" / "paper" / "ink" -> office_supplies
+- Extract vendor from context (e.g., "Claude Pro subscription" -> vendor: "Anthropic", "Udemy course" -> vendor: "Udemy")
+- Set is_recurring=true for subscriptions (monthly/annual patterns like "subscription", "monthly", "annual plan")
+- Default expense_date to today unless specified
+
 ## RECURRING TASK DETECTION
 When creating tasks, detect recurring patterns:
 - "weekly standup" -> suggested_recurring: { frequency: "weekly" }
@@ -221,6 +274,21 @@ Output: {"action":"create","is_chain":true,"items":[{"type":"task","title":"Desi
 Input: "| ID | Task | Predecessor(s) |\n| 1 | Design | — |\n| 2 | Review | 1 |\n| 3 | Implement | 1, 2 |"
 Output: {"action":"task_graph","tasks":[{"temp_id":"1","title":"Design","description":null,"predecessors":[]},{"temp_id":"2","title":"Review","description":null,"predecessors":["1"]},{"temp_id":"3","title":"Implement","description":null,"predecessors":["1","2"]}],"category_hint":"Work","message":"Created 3 tasks with dependencies"}
 
+Input: "logged 2h product dev - built SAM scanner"
+Output: {"action":"log_time","hours":2,"category":"product_dev","description":"Built SAM scanner","entry_date":"[today]","billable":false,"client_name":null}
+
+Input: "logged 1.5 hours client work - review for ATC"
+Output: {"action":"log_time","hours":1.5,"category":"client_work","description":"Review for ATC","entry_date":"[today]","billable":true,"client_name":"ATC"}
+
+Input: "30min admin - invoicing"
+Output: {"action":"log_time","hours":0.5,"category":"admin","description":"Invoicing","entry_date":"[today]","billable":false,"client_name":null}
+
+Input: "expense $49.99 software_tools - Claude Pro subscription"
+Output: {"action":"log_expense","amount":49.99,"category":"software_tools","vendor":"Anthropic","description":"Claude Pro subscription","expense_date":"[today]","is_recurring":true}
+
+Input: "spent $150 equipment - new keyboard"
+Output: {"action":"log_expense","amount":150,"category":"equipment","vendor":null,"description":"New keyboard","expense_date":"[today]","is_recurring":false}
+
 ## CRITICAL RULES
 - ALWAYS determine the correct action type first
 - ALWAYS return valid JSON, no markdown
@@ -228,6 +296,81 @@ Output: {"action":"task_graph","tasks":[{"temp_id":"1","title":"Design","descrip
 - For queries, don't create items - just return query parameters
 - For decompose, generate realistic subtasks based on the task
 - Detect recurring patterns and include suggested_recurring when appropriate`
+
+// System prompt for receipt image parsing via Claude Vision
+const RECEIPT_VISION_PROMPT = `You are an expert at reading receipts and invoices. Analyze this receipt image and extract expense information.
+
+Return ONLY valid JSON with these fields:
+{
+  "action": "log_expense",
+  "amount": 49.99,
+  "category": "software_tools" | "equipment" | "professional_dev" | "travel" | "marketing" | "insurance" | "legal_professional" | "office_supplies" | "other",
+  "vendor": "Store or Company Name",
+  "description": "Brief description of what was purchased",
+  "expense_date": "YYYY-MM-DD",
+  "is_recurring": false
+}
+
+Category mapping:
+- Software subscriptions, SaaS, digital tools -> software_tools
+- Hardware, electronics, peripherals -> equipment
+- Courses, books, certifications, training -> professional_dev
+- Flights, hotels, rideshare, gas, parking -> travel
+- Ads, business cards, promotional items -> marketing
+- Insurance premiums -> insurance
+- Legal fees, accounting, CPA -> legal_professional
+- Paper, ink, desk supplies -> office_supplies
+- Anything else -> other
+
+Rules:
+- Extract the TOTAL amount (after tax if visible)
+- Extract the vendor/store name from the header or logo
+- Use the date printed on the receipt for expense_date
+- Set is_recurring=true only if it's clearly a subscription/membership
+- If you can't read a field clearly, make your best guess based on context
+- Description should be a concise summary of the main items purchased
+- ALWAYS return valid JSON, never markdown`
+
+// Download image from Twilio media URL and convert to base64
+async function downloadTwilioMedia(
+  mediaUrl: string,
+): Promise<{ base64: string; mediaType: string } | null> {
+  try {
+    // Twilio media URLs require authentication
+    const accountSid = Deno.env.get('TWILIO_ACCOUNT_SID')
+    const authToken = Deno.env.get('TWILIO_AUTH_TOKEN')
+
+    const headers: Record<string, string> = {}
+    if (accountSid && authToken) {
+      headers['Authorization'] = 'Basic ' + btoa(`${accountSid}:${authToken}`)
+    }
+
+    const response = await fetch(mediaUrl, { headers })
+    if (!response.ok) {
+      console.error(`Failed to download media: ${response.status} ${response.statusText}`)
+      return null
+    }
+
+    const contentType = response.headers.get('content-type') || 'image/jpeg'
+    const buffer = await response.arrayBuffer()
+    const bytes = new Uint8Array(buffer)
+
+    // Convert to base64
+    let binary = ''
+    for (let i = 0; i < bytes.length; i++) {
+      binary += String.fromCharCode(bytes[i])
+    }
+    const base64 = btoa(binary)
+
+    // Map content type to what Claude expects
+    const mediaType = contentType.split(';')[0].trim()
+
+    return { base64, mediaType }
+  } catch (err) {
+    console.error('Error downloading Twilio media:', err)
+    return null
+  }
+}
 
 // Helper to log to SMS log table
 async function logSMS(
@@ -339,14 +482,20 @@ serve(async (req) => {
     body = formData.get('Body') as string || ''
     messageSid = formData.get('MessageSid') as string || ''
 
-    console.log(`Received SMS from ${from}: ${body}`)
+    // Parse MMS attachment info from Twilio
+    const numMedia = parseInt(formData.get('NumMedia') as string || '0', 10)
+    const mediaUrl0 = formData.get('MediaUrl0') as string || ''
+    const mediaContentType0 = formData.get('MediaContentType0') as string || ''
+    const hasImage = numMedia > 0 && mediaUrl0 && mediaContentType0.startsWith('image/')
 
-    if (!body || !from) {
+    console.log(`Received SMS from ${from}: ${body}${hasImage ? ` [+${numMedia} media: ${mediaContentType0}]` : ''}`)
+
+    if (!from || (!body && !hasImage)) {
       await logSMS(supabase, {
         twilio_sid: messageSid,
         from_number: from || 'unknown',
         body: body || '(empty)',
-        error: 'Missing message body or sender',
+        error: 'Missing message body/media or sender',
       })
       return new Response(
         '<?xml version="1.0" encoding="UTF-8"?><Response><Message>Error: Missing message data</Message></Response>',
@@ -369,6 +518,237 @@ ${Object.entries(dateInfo.daysOfWeek).map(([day, date]) => `  - ${day}: ${date}`
 
 Use these EXACT dates when the user mentions relative days.`
 
+    // ============ MMS RECEIPT PROCESSING ============
+    // If the message has an image attachment, treat it as a receipt scan
+    if (hasImage) {
+      console.log(`Processing MMS receipt from ${from}, media URL: ${mediaUrl0}`)
+
+      // Look up user from phone number
+      const { data: receiptUser } = await supabase
+        .from('user_phones')
+        .select('user_id')
+        .eq('phone', from)
+        .single()
+
+      if (!receiptUser?.user_id) {
+        await logSMS(supabase, {
+          twilio_sid: messageSid,
+          from_number: from,
+          body: body || '(receipt photo)',
+          error: 'Phone number not found for receipt upload',
+        })
+        return new Response(
+          `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escapeXml("I don't recognize this phone number. Please register it in the Takt app to use receipt scanning.")}</Message></Response>`,
+          { status: 200, headers: { 'Content-Type': 'text/xml; charset=utf-8' } }
+        )
+      }
+
+      // Download image from Twilio
+      const imageData = await downloadTwilioMedia(mediaUrl0)
+      if (!imageData) {
+        await logSMS(supabase, {
+          twilio_sid: messageSid,
+          from_number: from,
+          body: body || '(receipt photo)',
+          error: 'Failed to download media from Twilio',
+        })
+        return new Response(
+          '<?xml version="1.0" encoding="UTF-8"?><Response><Message>Sorry, I couldn\'t download your photo. Please try again.</Message></Response>',
+          { status: 200, headers: { 'Content-Type': 'text/xml; charset=utf-8' } }
+        )
+      }
+
+      console.log(`Downloaded image: ${imageData.mediaType}, ${imageData.base64.length} bytes base64`)
+
+      // Send to Claude Vision for receipt parsing
+      const additionalContext = body
+        ? `\n\nThe user also included this text with the receipt: "${body}"\nUse it to supplement or override anything you can't read on the receipt.`
+        : ''
+
+      let receiptResponse
+      try {
+        receiptResponse = await anthropic.messages.create({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 1024,
+          system: RECEIPT_VISION_PROMPT,
+          messages: [
+            {
+              role: 'user',
+              content: [
+                {
+                  type: 'image',
+                  source: {
+                    type: 'base64',
+                    media_type: imageData.mediaType,
+                    data: imageData.base64,
+                  },
+                },
+                {
+                  type: 'text',
+                  text: `${dateContext}\n\nExtract expense details from this receipt image.${additionalContext}`,
+                },
+              ],
+            },
+          ],
+        })
+      } catch (visionError) {
+        console.error('Claude Vision error:', visionError)
+        await logSMS(supabase, {
+          twilio_sid: messageSid,
+          from_number: from,
+          body: body || '(receipt photo)',
+          error: `Vision API error: ${visionError instanceof Error ? visionError.message : 'Unknown'}`,
+        })
+        return new Response(
+          '<?xml version="1.0" encoding="UTF-8"?><Response><Message>Sorry, I couldn\'t read your receipt. Try a clearer photo or type the expense manually.</Message></Response>',
+          { status: 200, headers: { 'Content-Type': 'text/xml; charset=utf-8' } }
+        )
+      }
+
+      const visionContent = receiptResponse.content[0]
+      if (visionContent.type !== 'text') {
+        await logSMS(supabase, {
+          twilio_sid: messageSid,
+          from_number: from,
+          body: body || '(receipt photo)',
+          error: 'Unexpected Vision response type',
+        })
+        return new Response(
+          '<?xml version="1.0" encoding="UTF-8"?><Response><Message>Sorry, something went wrong reading your receipt.</Message></Response>',
+          { status: 200, headers: { 'Content-Type': 'text/xml; charset=utf-8' } }
+        )
+      }
+
+      console.log('Receipt Vision raw response:', visionContent.text)
+
+      // Parse the JSON from vision response
+      let receiptParsed
+      try {
+        let jsonText = visionContent.text.trim()
+        if (jsonText.startsWith('```json')) jsonText = jsonText.slice(7)
+        if (jsonText.startsWith('```')) jsonText = jsonText.slice(3)
+        if (jsonText.endsWith('```')) jsonText = jsonText.slice(0, -3)
+        receiptParsed = JSON.parse(jsonText.trim())
+      } catch {
+        console.error('Failed to parse receipt vision response:', visionContent.text)
+        await logSMS(supabase, {
+          twilio_sid: messageSid,
+          from_number: from,
+          body: body || '(receipt photo)',
+          error: `Failed to parse vision response: ${visionContent.text.substring(0, 200)}`,
+        })
+        return new Response(
+          '<?xml version="1.0" encoding="UTF-8"?><Response><Message>Sorry, I couldn\'t extract details from that receipt. Try a clearer photo.</Message></Response>',
+          { status: 200, headers: { 'Content-Type': 'text/xml; charset=utf-8' } }
+        )
+      }
+
+      // Validate parsed receipt data
+      const validExpCats = [
+        'software_tools', 'equipment', 'professional_dev', 'travel',
+        'marketing', 'insurance', 'legal_professional', 'office_supplies', 'other',
+      ]
+      const receiptCategory = validExpCats.includes(receiptParsed.category) ? receiptParsed.category : 'other'
+      const receiptAmount = Number(receiptParsed.amount)
+
+      if (!receiptAmount || receiptAmount <= 0) {
+        await logSMS(supabase, {
+          twilio_sid: messageSid,
+          from_number: from,
+          body: body || '(receipt photo)',
+          parsed_result: receiptParsed,
+          error: 'Could not extract amount from receipt',
+        })
+        return new Response(
+          `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escapeXml("I couldn't read the total from your receipt. Try: \"expense $XX.XX category - description\"")}</Message></Response>`,
+          { status: 200, headers: { 'Content-Type': 'text/xml; charset=utf-8' } }
+        )
+      }
+
+      const receiptDate = receiptParsed.expense_date || dateInfo.today
+
+      // Create the expense entry
+      const { data: newExpense, error: receiptExpError } = await supabase
+        .from('expenses')
+        .insert({
+          user_id: receiptUser.user_id,
+          expense_date: receiptDate,
+          amount: receiptAmount,
+          category: receiptCategory,
+          vendor: receiptParsed.vendor || null,
+          description: receiptParsed.description || null,
+          is_recurring: receiptParsed.is_recurring || false,
+        })
+        .select()
+        .single()
+
+      if (receiptExpError || !newExpense) {
+        console.error('Error creating receipt expense:', receiptExpError)
+        await logSMS(supabase, {
+          twilio_sid: messageSid,
+          from_number: from,
+          body: body || '(receipt photo)',
+          parsed_result: receiptParsed,
+          error: `DB error: ${receiptExpError?.message || 'No data returned'}`,
+        })
+        return new Response(
+          `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escapeXml(`Failed to save expense: ${receiptExpError?.message || 'Unknown error'}`)}</Message></Response>`,
+          { status: 200, headers: { 'Content-Type': 'text/xml; charset=utf-8' } }
+        )
+      }
+
+      // Upload receipt image to Supabase Storage
+      const ext = mediaContentType0.includes('png') ? 'png' : mediaContentType0.includes('webp') ? 'webp' : 'jpg'
+      const storagePath = `${newExpense.id}.${ext}`
+      const imageBytes = Uint8Array.from(atob(imageData.base64), (c) => c.charCodeAt(0))
+
+      const { error: storageError } = await supabase.storage
+        .from('receipts')
+        .upload(storagePath, imageBytes, {
+          contentType: imageData.mediaType,
+          cacheControl: '3600',
+          upsert: true,
+        })
+
+      if (storageError) {
+        console.error('Receipt storage upload error:', storageError)
+        // Non-fatal: expense was created, just no receipt image linked
+      } else {
+        // Link the receipt path to the expense
+        await supabase
+          .from('expenses')
+          .update({ receipt_path: storagePath })
+          .eq('id', newExpense.id)
+        console.log(`Receipt uploaded: ${storagePath}`)
+      }
+
+      // Build confirmation
+      const receiptCatLabels: Record<string, string> = {
+        software_tools: 'Software & Tools', equipment: 'Equipment', professional_dev: 'Prof. Dev',
+        travel: 'Travel', marketing: 'Marketing', insurance: 'Insurance',
+        legal_professional: 'Legal & Prof.', office_supplies: 'Office Supplies', other: 'Other',
+      }
+      const catLabel = receiptCatLabels[receiptCategory] || receiptCategory
+      const vendorStr = receiptParsed.vendor ? ` from ${receiptParsed.vendor}` : ''
+      const receiptTag = storageError ? '' : ' (receipt saved)'
+      const receiptMsg = `Logged $${receiptAmount.toFixed(2)} ${catLabel}${vendorStr}${receiptTag}: "${receiptParsed.description || 'Receipt scan'}"`
+
+      await logSMS(supabase, {
+        twilio_sid: messageSid,
+        from_number: from,
+        body: body || '(receipt photo)',
+        parsed_result: receiptParsed,
+        items_created: 1,
+      })
+
+      const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escapeXml(receiptMsg)}</Message></Response>`
+      return new Response(twiml, {
+        status: 200,
+        headers: { 'Content-Type': 'text/xml; charset=utf-8' },
+      })
+    }
+
+    // ============ TEXT-ONLY SMS PROCESSING ============
     // Get existing categories for context
     const { data: categories } = await supabase
       .from('categories')
@@ -933,6 +1313,191 @@ Use these EXACT dates when the user mentions relative days.`
           body: body,
           parsed_result: parsed,
           items_created: createdTasks.length,
+        })
+        break
+      }
+
+      // ============ LOG_TIME ACTION ============
+      case 'log_time': {
+        // Look up user_id from phone number
+        const { data: userPhone } = await supabase
+          .from('user_phones')
+          .select('user_id')
+          .eq('phone', from)
+          .single()
+
+        if (!userPhone?.user_id) {
+          confirmationMsg = "I don't recognize this phone number. Please register it in the Takt app first."
+          await logSMS(supabase, {
+            twilio_sid: messageSid,
+            from_number: from,
+            body: body,
+            parsed_result: parsed,
+            error: 'Phone number not found in user_phones',
+          })
+          break
+        }
+
+        // Validate category
+        const validTimeCategories = ['product_dev', 'bd_outreach', 'client_work', 'content', 'admin', 'professional_dev']
+        const timeCategory = validTimeCategories.includes(parsed.category) ? parsed.category : null
+
+        if (!timeCategory || !parsed.hours || parsed.hours <= 0) {
+          confirmationMsg = "Couldn't parse your time entry. Try: \"logged 2h product dev - description\""
+          await logSMS(supabase, {
+            twilio_sid: messageSid,
+            from_number: from,
+            body: body,
+            parsed_result: parsed,
+            error: `Invalid time entry: category=${parsed.category}, hours=${parsed.hours}`,
+          })
+          break
+        }
+
+        const timeEntryDate = parsed.entry_date || dateInfo.today
+
+        const { error: timeError } = await supabase
+          .from('time_entries')
+          .insert({
+            user_id: userPhone.user_id,
+            entry_date: timeEntryDate,
+            hours: parsed.hours,
+            category: timeCategory,
+            description: parsed.description || null,
+            billable: parsed.billable || false,
+            client_name: parsed.client_name || null,
+          })
+          .select()
+          .single()
+
+        if (timeError) {
+          console.error('Error creating time entry:', timeError)
+          confirmationMsg = `Failed to log time: ${timeError.message}`
+          await logSMS(supabase, {
+            twilio_sid: messageSid,
+            from_number: from,
+            body: body,
+            parsed_result: parsed,
+            error: `DB error: ${timeError.message}`,
+          })
+          break
+        }
+
+        const timeCategoryLabels: Record<string, string> = {
+          product_dev: 'Product Dev',
+          bd_outreach: 'BD & Outreach',
+          client_work: 'Client Work',
+          content: 'Content',
+          admin: 'Admin',
+          professional_dev: 'Prof. Dev',
+        }
+        const timeCatLabel = timeCategoryLabels[timeCategory] || timeCategory
+        const billableTag = parsed.billable ? ' (billable)' : ''
+        const clientTag = parsed.client_name ? ` for ${parsed.client_name}` : ''
+
+        confirmationMsg = `Logged ${parsed.hours}h ${timeCatLabel}${clientTag}${billableTag}: "${parsed.description || 'No description'}"`
+
+        await logSMS(supabase, {
+          twilio_sid: messageSid,
+          from_number: from,
+          body: body,
+          parsed_result: parsed,
+          items_created: 1,
+        })
+        break
+      }
+
+      // ============ LOG_EXPENSE ACTION ============
+      case 'log_expense': {
+        // Look up user_id from phone number
+        const { data: expUserPhone } = await supabase
+          .from('user_phones')
+          .select('user_id')
+          .eq('phone', from)
+          .single()
+
+        if (!expUserPhone?.user_id) {
+          confirmationMsg = "I don't recognize this phone number. Please register it in the Takt app first."
+          await logSMS(supabase, {
+            twilio_sid: messageSid,
+            from_number: from,
+            body: body,
+            parsed_result: parsed,
+            error: 'Phone number not found in user_phones',
+          })
+          break
+        }
+
+        const validExpenseCategories = [
+          'software_tools', 'equipment', 'professional_dev', 'travel',
+          'marketing', 'insurance', 'legal_professional', 'office_supplies', 'other',
+        ]
+        const expenseCategory = validExpenseCategories.includes(parsed.category) ? parsed.category : null
+
+        if (!expenseCategory || !parsed.amount || parsed.amount <= 0) {
+          confirmationMsg = "Couldn't parse your expense. Try: \"expense $49.99 software_tools - description\""
+          await logSMS(supabase, {
+            twilio_sid: messageSid,
+            from_number: from,
+            body: body,
+            parsed_result: parsed,
+            error: `Invalid expense: category=${parsed.category}, amount=${parsed.amount}`,
+          })
+          break
+        }
+
+        const expenseEntryDate = parsed.expense_date || dateInfo.today
+
+        const { error: expenseError } = await supabase
+          .from('expenses')
+          .insert({
+            user_id: expUserPhone.user_id,
+            expense_date: expenseEntryDate,
+            amount: parsed.amount,
+            category: expenseCategory,
+            vendor: parsed.vendor || null,
+            description: parsed.description || null,
+            is_recurring: parsed.is_recurring || false,
+          })
+          .select()
+          .single()
+
+        if (expenseError) {
+          console.error('Error creating expense:', expenseError)
+          confirmationMsg = `Failed to log expense: ${expenseError.message}`
+          await logSMS(supabase, {
+            twilio_sid: messageSid,
+            from_number: from,
+            body: body,
+            parsed_result: parsed,
+            error: `DB error: ${expenseError.message}`,
+          })
+          break
+        }
+
+        const expCategoryLabels: Record<string, string> = {
+          software_tools: 'Software & Tools',
+          equipment: 'Equipment',
+          professional_dev: 'Prof. Dev',
+          travel: 'Travel',
+          marketing: 'Marketing',
+          insurance: 'Insurance',
+          legal_professional: 'Legal & Prof.',
+          office_supplies: 'Office Supplies',
+          other: 'Other',
+        }
+        const expCatLabel = expCategoryLabels[expenseCategory] || expenseCategory
+        const recurringTag = parsed.is_recurring ? ' (recurring)' : ''
+        const vendorTag = parsed.vendor ? ` from ${parsed.vendor}` : ''
+
+        confirmationMsg = `Logged $${Number(parsed.amount).toFixed(2)} ${expCatLabel}${vendorTag}${recurringTag}: "${parsed.description || 'No description'}"`
+
+        await logSMS(supabase, {
+          twilio_sid: messageSid,
+          from_number: from,
+          body: body,
+          parsed_result: parsed,
+          items_created: 1,
         })
         break
       }
