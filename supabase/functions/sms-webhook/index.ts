@@ -1,6 +1,6 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import Anthropic from 'https://esm.sh/@anthropic-ai/sdk@0.24.0'
+import Anthropic from 'https://esm.sh/@anthropic-ai/sdk@0.71.2'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -297,6 +297,81 @@ Output: {"action":"log_expense","amount":150,"category":"equipment","vendor":nul
 - For decompose, generate realistic subtasks based on the task
 - Detect recurring patterns and include suggested_recurring when appropriate`
 
+// System prompt for receipt image parsing via Claude Vision
+const RECEIPT_VISION_PROMPT = `You are an expert at reading receipts and invoices. Analyze this receipt image and extract expense information.
+
+Return ONLY valid JSON with these fields:
+{
+  "action": "log_expense",
+  "amount": 49.99,
+  "category": "software_tools" | "equipment" | "professional_dev" | "travel" | "marketing" | "insurance" | "legal_professional" | "office_supplies" | "other",
+  "vendor": "Store or Company Name",
+  "description": "Brief description of what was purchased",
+  "expense_date": "YYYY-MM-DD",
+  "is_recurring": false
+}
+
+Category mapping:
+- Software subscriptions, SaaS, digital tools -> software_tools
+- Hardware, electronics, peripherals -> equipment
+- Courses, books, certifications, training -> professional_dev
+- Flights, hotels, rideshare, gas, parking -> travel
+- Ads, business cards, promotional items -> marketing
+- Insurance premiums -> insurance
+- Legal fees, accounting, CPA -> legal_professional
+- Paper, ink, desk supplies -> office_supplies
+- Anything else -> other
+
+Rules:
+- Extract the TOTAL amount (after tax if visible)
+- Extract the vendor/store name from the header or logo
+- Use the date printed on the receipt for expense_date
+- Set is_recurring=true only if it's clearly a subscription/membership
+- If you can't read a field clearly, make your best guess based on context
+- Description should be a concise summary of the main items purchased
+- ALWAYS return valid JSON, never markdown`
+
+// Download image from Twilio media URL and convert to base64
+async function downloadTwilioMedia(
+  mediaUrl: string,
+): Promise<{ base64: string; mediaType: string } | null> {
+  try {
+    // Twilio media URLs require authentication
+    const accountSid = Deno.env.get('TWILIO_ACCOUNT_SID')
+    const authToken = Deno.env.get('TWILIO_AUTH_TOKEN')
+
+    const headers: Record<string, string> = {}
+    if (accountSid && authToken) {
+      headers['Authorization'] = 'Basic ' + btoa(`${accountSid}:${authToken}`)
+    }
+
+    const response = await fetch(mediaUrl, { headers })
+    if (!response.ok) {
+      console.error(`Failed to download media: ${response.status} ${response.statusText}`)
+      return null
+    }
+
+    const contentType = response.headers.get('content-type') || 'image/jpeg'
+    const buffer = await response.arrayBuffer()
+    const bytes = new Uint8Array(buffer)
+
+    // Convert to base64
+    let binary = ''
+    for (let i = 0; i < bytes.length; i++) {
+      binary += String.fromCharCode(bytes[i])
+    }
+    const base64 = btoa(binary)
+
+    // Map content type to what Claude expects
+    const mediaType = contentType.split(';')[0].trim()
+
+    return { base64, mediaType }
+  } catch (err) {
+    console.error('Error downloading Twilio media:', err)
+    return null
+  }
+}
+
 // Helper to log to SMS log table
 async function logSMS(
   supabase: ReturnType<typeof createClient>,
@@ -407,14 +482,20 @@ serve(async (req) => {
     body = formData.get('Body') as string || ''
     messageSid = formData.get('MessageSid') as string || ''
 
-    console.log(`Received SMS from ${from}: ${body}`)
+    // Parse MMS attachment info from Twilio
+    const numMedia = parseInt(formData.get('NumMedia') as string || '0', 10)
+    const mediaUrl0 = formData.get('MediaUrl0') as string || ''
+    const mediaContentType0 = formData.get('MediaContentType0') as string || ''
+    const hasImage = numMedia > 0 && mediaUrl0 && mediaContentType0.startsWith('image/')
 
-    if (!body || !from) {
+    console.log(`Received SMS from ${from}: ${body}${hasImage ? ` [+${numMedia} media: ${mediaContentType0}]` : ''}`)
+
+    if (!from || (!body && !hasImage)) {
       await logSMS(supabase, {
         twilio_sid: messageSid,
         from_number: from || 'unknown',
         body: body || '(empty)',
-        error: 'Missing message body or sender',
+        error: 'Missing message body/media or sender',
       })
       return new Response(
         '<?xml version="1.0" encoding="UTF-8"?><Response><Message>Error: Missing message data</Message></Response>',
@@ -437,6 +518,237 @@ ${Object.entries(dateInfo.daysOfWeek).map(([day, date]) => `  - ${day}: ${date}`
 
 Use these EXACT dates when the user mentions relative days.`
 
+    // ============ MMS RECEIPT PROCESSING ============
+    // If the message has an image attachment, treat it as a receipt scan
+    if (hasImage) {
+      console.log(`Processing MMS receipt from ${from}, media URL: ${mediaUrl0}`)
+
+      // Look up user from phone number
+      const { data: receiptUser } = await supabase
+        .from('user_phones')
+        .select('user_id')
+        .eq('phone', from)
+        .single()
+
+      if (!receiptUser?.user_id) {
+        await logSMS(supabase, {
+          twilio_sid: messageSid,
+          from_number: from,
+          body: body || '(receipt photo)',
+          error: 'Phone number not found for receipt upload',
+        })
+        return new Response(
+          `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escapeXml("I don't recognize this phone number. Please register it in the Takt app to use receipt scanning.")}</Message></Response>`,
+          { status: 200, headers: { 'Content-Type': 'text/xml; charset=utf-8' } }
+        )
+      }
+
+      // Download image from Twilio
+      const imageData = await downloadTwilioMedia(mediaUrl0)
+      if (!imageData) {
+        await logSMS(supabase, {
+          twilio_sid: messageSid,
+          from_number: from,
+          body: body || '(receipt photo)',
+          error: 'Failed to download media from Twilio',
+        })
+        return new Response(
+          '<?xml version="1.0" encoding="UTF-8"?><Response><Message>Sorry, I couldn\'t download your photo. Please try again.</Message></Response>',
+          { status: 200, headers: { 'Content-Type': 'text/xml; charset=utf-8' } }
+        )
+      }
+
+      console.log(`Downloaded image: ${imageData.mediaType}, ${imageData.base64.length} bytes base64`)
+
+      // Send to Claude Vision for receipt parsing
+      const additionalContext = body
+        ? `\n\nThe user also included this text with the receipt: "${body}"\nUse it to supplement or override anything you can't read on the receipt.`
+        : ''
+
+      let receiptResponse
+      try {
+        receiptResponse = await anthropic.messages.create({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 1024,
+          system: RECEIPT_VISION_PROMPT,
+          messages: [
+            {
+              role: 'user',
+              content: [
+                {
+                  type: 'image',
+                  source: {
+                    type: 'base64',
+                    media_type: imageData.mediaType,
+                    data: imageData.base64,
+                  },
+                },
+                {
+                  type: 'text',
+                  text: `${dateContext}\n\nExtract expense details from this receipt image.${additionalContext}`,
+                },
+              ],
+            },
+          ],
+        })
+      } catch (visionError) {
+        console.error('Claude Vision error:', visionError)
+        await logSMS(supabase, {
+          twilio_sid: messageSid,
+          from_number: from,
+          body: body || '(receipt photo)',
+          error: `Vision API error: ${visionError instanceof Error ? visionError.message : 'Unknown'}`,
+        })
+        return new Response(
+          '<?xml version="1.0" encoding="UTF-8"?><Response><Message>Sorry, I couldn\'t read your receipt. Try a clearer photo or type the expense manually.</Message></Response>',
+          { status: 200, headers: { 'Content-Type': 'text/xml; charset=utf-8' } }
+        )
+      }
+
+      const visionContent = receiptResponse.content[0]
+      if (visionContent.type !== 'text') {
+        await logSMS(supabase, {
+          twilio_sid: messageSid,
+          from_number: from,
+          body: body || '(receipt photo)',
+          error: 'Unexpected Vision response type',
+        })
+        return new Response(
+          '<?xml version="1.0" encoding="UTF-8"?><Response><Message>Sorry, something went wrong reading your receipt.</Message></Response>',
+          { status: 200, headers: { 'Content-Type': 'text/xml; charset=utf-8' } }
+        )
+      }
+
+      console.log('Receipt Vision raw response:', visionContent.text)
+
+      // Parse the JSON from vision response
+      let receiptParsed
+      try {
+        let jsonText = visionContent.text.trim()
+        if (jsonText.startsWith('```json')) jsonText = jsonText.slice(7)
+        if (jsonText.startsWith('```')) jsonText = jsonText.slice(3)
+        if (jsonText.endsWith('```')) jsonText = jsonText.slice(0, -3)
+        receiptParsed = JSON.parse(jsonText.trim())
+      } catch {
+        console.error('Failed to parse receipt vision response:', visionContent.text)
+        await logSMS(supabase, {
+          twilio_sid: messageSid,
+          from_number: from,
+          body: body || '(receipt photo)',
+          error: `Failed to parse vision response: ${visionContent.text.substring(0, 200)}`,
+        })
+        return new Response(
+          '<?xml version="1.0" encoding="UTF-8"?><Response><Message>Sorry, I couldn\'t extract details from that receipt. Try a clearer photo.</Message></Response>',
+          { status: 200, headers: { 'Content-Type': 'text/xml; charset=utf-8' } }
+        )
+      }
+
+      // Validate parsed receipt data
+      const validExpCats = [
+        'software_tools', 'equipment', 'professional_dev', 'travel',
+        'marketing', 'insurance', 'legal_professional', 'office_supplies', 'other',
+      ]
+      const receiptCategory = validExpCats.includes(receiptParsed.category) ? receiptParsed.category : 'other'
+      const receiptAmount = Number(receiptParsed.amount)
+
+      if (!receiptAmount || receiptAmount <= 0) {
+        await logSMS(supabase, {
+          twilio_sid: messageSid,
+          from_number: from,
+          body: body || '(receipt photo)',
+          parsed_result: receiptParsed,
+          error: 'Could not extract amount from receipt',
+        })
+        return new Response(
+          `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escapeXml("I couldn't read the total from your receipt. Try: \"expense $XX.XX category - description\"")}</Message></Response>`,
+          { status: 200, headers: { 'Content-Type': 'text/xml; charset=utf-8' } }
+        )
+      }
+
+      const receiptDate = receiptParsed.expense_date || dateInfo.today
+
+      // Create the expense entry
+      const { data: newExpense, error: receiptExpError } = await supabase
+        .from('expenses')
+        .insert({
+          user_id: receiptUser.user_id,
+          expense_date: receiptDate,
+          amount: receiptAmount,
+          category: receiptCategory,
+          vendor: receiptParsed.vendor || null,
+          description: receiptParsed.description || null,
+          is_recurring: receiptParsed.is_recurring || false,
+        })
+        .select()
+        .single()
+
+      if (receiptExpError || !newExpense) {
+        console.error('Error creating receipt expense:', receiptExpError)
+        await logSMS(supabase, {
+          twilio_sid: messageSid,
+          from_number: from,
+          body: body || '(receipt photo)',
+          parsed_result: receiptParsed,
+          error: `DB error: ${receiptExpError?.message || 'No data returned'}`,
+        })
+        return new Response(
+          `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escapeXml(`Failed to save expense: ${receiptExpError?.message || 'Unknown error'}`)}</Message></Response>`,
+          { status: 200, headers: { 'Content-Type': 'text/xml; charset=utf-8' } }
+        )
+      }
+
+      // Upload receipt image to Supabase Storage
+      const ext = mediaContentType0.includes('png') ? 'png' : mediaContentType0.includes('webp') ? 'webp' : 'jpg'
+      const storagePath = `${newExpense.id}.${ext}`
+      const imageBytes = Uint8Array.from(atob(imageData.base64), (c) => c.charCodeAt(0))
+
+      const { error: storageError } = await supabase.storage
+        .from('receipts')
+        .upload(storagePath, imageBytes, {
+          contentType: imageData.mediaType,
+          cacheControl: '3600',
+          upsert: true,
+        })
+
+      if (storageError) {
+        console.error('Receipt storage upload error:', storageError)
+        // Non-fatal: expense was created, just no receipt image linked
+      } else {
+        // Link the receipt path to the expense
+        await supabase
+          .from('expenses')
+          .update({ receipt_path: storagePath })
+          .eq('id', newExpense.id)
+        console.log(`Receipt uploaded: ${storagePath}`)
+      }
+
+      // Build confirmation
+      const receiptCatLabels: Record<string, string> = {
+        software_tools: 'Software & Tools', equipment: 'Equipment', professional_dev: 'Prof. Dev',
+        travel: 'Travel', marketing: 'Marketing', insurance: 'Insurance',
+        legal_professional: 'Legal & Prof.', office_supplies: 'Office Supplies', other: 'Other',
+      }
+      const catLabel = receiptCatLabels[receiptCategory] || receiptCategory
+      const vendorStr = receiptParsed.vendor ? ` from ${receiptParsed.vendor}` : ''
+      const receiptTag = storageError ? '' : ' (receipt saved)'
+      const receiptMsg = `Logged $${receiptAmount.toFixed(2)} ${catLabel}${vendorStr}${receiptTag}: "${receiptParsed.description || 'Receipt scan'}"`
+
+      await logSMS(supabase, {
+        twilio_sid: messageSid,
+        from_number: from,
+        body: body || '(receipt photo)',
+        parsed_result: receiptParsed,
+        items_created: 1,
+      })
+
+      const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escapeXml(receiptMsg)}</Message></Response>`
+      return new Response(twiml, {
+        status: 200,
+        headers: { 'Content-Type': 'text/xml; charset=utf-8' },
+      })
+    }
+
+    // ============ TEXT-ONLY SMS PROCESSING ============
     // Get existing categories for context
     const { data: categories } = await supabase
       .from('categories')
