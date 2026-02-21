@@ -6,6 +6,7 @@ import { useViewStore } from '@/stores/viewStore'
 import { useItemStore } from '@/stores/itemStore'
 import { useCategoryStore } from '@/stores/categoryStore'
 import { useThemeStore } from '@/stores/themeStore'
+import { useTimekeepingStore } from '@/stores/timekeepingStore'
 import ItemModal from '@/components/Items/ItemModal'
 import BatchActionToolbar from '@/components/Common/BatchActionToolbar'
 
@@ -15,22 +16,31 @@ export default function Layout() {
   const { fetchItems, fetchDependencies, subscribeToChanges: subscribeItems } = useItemStore()
   const { fetchCategories, subscribeToChanges: subscribeCategories } = useCategoryStore()
   const theme = useThemeStore((state) => state.theme)
+  const {
+    fetchTimeEntries,
+    fetchExpenses,
+    subscribeToChanges: subscribeTimekeeping,
+  } = useTimekeepingStore()
 
   useEffect(() => {
     // Fetch initial data
     fetchItems()
     fetchDependencies()
     fetchCategories()
+    fetchTimeEntries()
+    fetchExpenses()
 
     // Subscribe to real-time updates
     const unsubItems = subscribeItems()
     const unsubCategories = subscribeCategories()
+    const unsubTimekeeping = subscribeTimekeeping()
 
     return () => {
       unsubItems()
       unsubCategories()
+      unsubTimekeeping()
     }
-  }, [fetchItems, fetchDependencies, fetchCategories, subscribeItems, subscribeCategories])
+  }, [fetchItems, fetchDependencies, fetchCategories, subscribeItems, subscribeCategories, fetchTimeEntries, fetchExpenses, subscribeTimekeeping])
 
   // Apply theme class to document element
   useEffect(() => {

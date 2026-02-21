@@ -131,7 +131,18 @@ export interface ParsedSmsResult {
 }
 
 // View types
-export type ViewType = 'kanban' | 'list' | 'gantt' | 'planner'
+export type ViewType = 'kanban' | 'list' | 'gantt' | 'planner' | 'time'
+
+// Re-export timekeeping types
+export type {
+  TimeCategory,
+  ExpenseCategory,
+  TimeEntry,
+  Expense,
+  TimeEntryFormData,
+  ExpenseFormData,
+} from './timekeeping'
+export { TIME_CATEGORIES, EXPENSE_CATEGORIES } from './timekeeping'
 
 // Form types
 export interface TaskFormData {
