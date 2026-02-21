@@ -6,7 +6,7 @@ import { useTimekeepingStore } from '@/stores/timekeepingStore'
 import { useItemStore } from '@/stores/itemStore'
 import { getTodayString } from '@/lib/dateUtils'
 import { TIME_CATEGORIES } from '@/types/timekeeping'
-import type { TimeCategory, TimeEntryFormData } from '@/types/timekeeping'
+import type { TimeCategory, TimeEntryFormData, ChargeAccount } from '@/types/timekeeping'
 import HoursStepper from './HoursStepper'
 import CategoryPills from './CategoryPills'
 
@@ -29,9 +29,10 @@ interface QuickLogFormProps {
 }
 
 export default function QuickLogForm({ onSwitchToExpense }: QuickLogFormProps) {
-  const { createTimeEntry, getDistinctClientNames } = useTimekeepingStore()
+  const { createTimeEntry, getDistinctClientNames, chargeAccounts } = useTimekeepingStore()
   const items = useItemStore((s) => s.items)
   const [saving, setSaving] = useState(false)
+  const [selectedAccountId, setSelectedAccountId] = useState<string>('')
   const [lastCategory, setLastCategory] = useState<TimeCategory | null>(() => {
     try {
       return localStorage.getItem('takt-last-time-category') as TimeCategory | null
@@ -58,6 +59,22 @@ export default function QuickLogForm({ onSwitchToExpense }: QuickLogFormProps) {
   const clientNames = getDistinctClientNames()
   const tasks = items.filter((i) => i.type === 'task' && !i.completed)
 
+  const handleAccountChange = (accountId: string) => {
+    setSelectedAccountId(accountId)
+    if (!accountId) {
+      setValue('billable', false)
+      setValue('client_name', '')
+      setValue('rate_override', null)
+      return
+    }
+    const account = chargeAccounts.find((a) => a.id === accountId)
+    if (account) {
+      setValue('billable', account.billable)
+      setValue('client_name', account.client_name ?? '')
+      setValue('rate_override', account.hourly_rate)
+    }
+  }
+
   const onSubmit = async (data: TimeEntryFormData) => {
     setSaving(true)
     const result = await createTimeEntry(data)
@@ -71,6 +88,7 @@ export default function QuickLogForm({ onSwitchToExpense }: QuickLogFormProps) {
       } catch { /* ignore */ }
 
       // Reset form for next entry
+      setSelectedAccountId('')
       reset({
         entry_date: getTodayString(),
         hours: 1,
@@ -186,6 +204,29 @@ export default function QuickLogForm({ onSwitchToExpense }: QuickLogFormProps) {
           )}
         />
       </div>
+
+      {/* Charge Account selector */}
+      {chargeAccounts.length > 0 && (
+        <div>
+          <label htmlFor="charge-account" className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-theme-text-muted">
+            Charge Account (optional)
+          </label>
+          <select
+            id="charge-account"
+            value={selectedAccountId}
+            onChange={(e) => handleAccountChange(e.target.value)}
+            aria-label="Charge account"
+            className="w-full rounded-lg border border-theme-border-primary bg-theme-bg-tertiary px-3 py-2.5 text-sm text-theme-text-primary focus:border-theme-accent-primary focus:outline-none focus-glow transition-all-fast"
+          >
+            <option value="">— No account —</option>
+            {chargeAccounts.map((account) => (
+              <option key={account.id} value={account.id}>
+                {account.name}{account.billable ? ` · ${account.client_name || 'Billable'}${account.hourly_rate ? ` $${account.hourly_rate}/hr` : ''}` : ' · Internal'}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {/* Billable toggle */}
       <div>

@@ -1,12 +1,13 @@
 import { create } from 'zustand'
 import { supabase } from '@/lib/supabase'
 import { useToastStore } from './toastStore'
-import type { TimeEntry, Expense, TimeEntryFormData, ExpenseFormData } from '@/types/timekeeping'
+import type { TimeEntry, Expense, TimeEntryFormData, ExpenseFormData, ChargeAccount, ChargeAccountFormData } from '@/types/timekeeping'
 import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, format } from 'date-fns'
 
 interface TimekeepingState {
   timeEntries: TimeEntry[]
   expenses: Expense[]
+  chargeAccounts: ChargeAccount[]
   loading: boolean
   error: string | null
 
@@ -21,6 +22,12 @@ interface TimekeepingState {
   createExpense: (data: ExpenseFormData) => Promise<Expense | null>
   updateExpense: (id: string, data: Partial<Expense>) => Promise<Expense | null>
   deleteExpense: (id: string) => Promise<boolean>
+
+  // Charge Account CRUD
+  fetchChargeAccounts: () => Promise<void>
+  createChargeAccount: (data: ChargeAccountFormData) => Promise<ChargeAccount | null>
+  updateChargeAccount: (id: string, data: Partial<ChargeAccountFormData>) => Promise<ChargeAccount | null>
+  deleteChargeAccount: (id: string) => Promise<boolean>
 
   // Receipt
   uploadReceipt: (expenseId: string, file: File) => Promise<string | null>
@@ -41,6 +48,7 @@ interface TimekeepingState {
 export const useTimekeepingStore = create<TimekeepingState>((set, get) => ({
   timeEntries: [],
   expenses: [],
+  chargeAccounts: [],
   loading: false,
   error: null,
 
@@ -258,6 +266,102 @@ export const useTimekeepingStore = create<TimekeepingState>((set, get) => ({
 
     set({ expenses: get().expenses.filter((e) => e.id !== id) })
     toast.success('Expense deleted')
+    return true
+  },
+
+  fetchChargeAccounts: async () => {
+    const { data, error } = await supabase
+      .from('charge_accounts')
+      .select('*')
+      .order('name', { ascending: true })
+
+    if (error) {
+      set({ error: error.message })
+      return
+    }
+
+    set({ chargeAccounts: data ?? [] })
+  },
+
+  createChargeAccount: async (data: ChargeAccountFormData) => {
+    const toast = useToastStore.getState()
+
+    const { data: session } = await supabase.auth.getSession()
+    const userId = session?.session?.user?.id
+    if (!userId) {
+      toast.error('Not authenticated')
+      return null
+    }
+
+    const { data: newAccount, error } = await supabase
+      .from('charge_accounts')
+      .insert({
+        user_id: userId,
+        name: data.name.trim(),
+        billable: data.billable,
+        client_name: data.billable ? (data.client_name || null) : null,
+        hourly_rate: data.billable ? (data.hourly_rate ?? null) : null,
+        notes: data.notes || null,
+      })
+      .select()
+      .single()
+
+    if (error) {
+      set({ error: error.message })
+      toast.error(error.message.includes('unique') ? 'An account with that name already exists' : 'Failed to save charge account')
+      return null
+    }
+
+    set({ chargeAccounts: [...get().chargeAccounts, newAccount].sort((a, b) => a.name.localeCompare(b.name)) })
+    toast.success('Charge account saved')
+    return newAccount
+  },
+
+  updateChargeAccount: async (id: string, data: Partial<ChargeAccountFormData>) => {
+    const toast = useToastStore.getState()
+
+    const update: Record<string, unknown> = {}
+    if (data.name !== undefined) update.name = data.name.trim()
+    if (data.billable !== undefined) update.billable = data.billable
+    if (data.client_name !== undefined) update.client_name = data.client_name || null
+    if (data.hourly_rate !== undefined) update.hourly_rate = data.hourly_rate ?? null
+    if (data.notes !== undefined) update.notes = data.notes || null
+
+    const { data: updated, error } = await supabase
+      .from('charge_accounts')
+      .update(update)
+      .eq('id', id)
+      .select()
+      .single()
+
+    if (error) {
+      set({ error: error.message })
+      toast.error('Failed to update charge account')
+      return null
+    }
+
+    set({
+      chargeAccounts: get().chargeAccounts
+        .map((a) => (a.id === id ? updated : a))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    })
+    toast.success('Charge account updated')
+    return updated
+  },
+
+  deleteChargeAccount: async (id: string) => {
+    const toast = useToastStore.getState()
+
+    const { error } = await supabase.from('charge_accounts').delete().eq('id', id)
+
+    if (error) {
+      set({ error: error.message })
+      toast.error('Failed to delete charge account')
+      return false
+    }
+
+    set({ chargeAccounts: get().chargeAccounts.filter((a) => a.id !== id) })
+    toast.success('Charge account deleted')
     return true
   },
 

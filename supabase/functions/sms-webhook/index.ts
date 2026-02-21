@@ -19,7 +19,25 @@ const SMS_SYSTEM_PROMPT = `You are an expert assistant for a task management app
 
 ## DETERMINE THE ACTION TYPE
 
-First, identify what the user wants:
+First, identify what the user wants. Check in this PRIORITY ORDER — use the FIRST match:
+
+**LOG_TIME** (CHECK FIRST) - User is logging time/hours worked:
+- CRITICAL: If the message mentions a number of hours/minutes AND a work category or activity, it is ALWAYS log_time — never create a task.
+- "logged 2h product dev - built SAM scanner"
+- "logged 1.5 hours client work - review for ATC"
+- "30min admin - invoicing"
+- "3h content - wrote blog post about consulting"
+- "log 1.5 hrs of development work (IP dev) with a note..."
+- "log 2 hours product dev - description here. not billable."
+- "spent 3h on client work for Acme"
+- Keywords: "logged", "log", "spent [time]", "[number]h", "[number]hrs", "[number] hours", "[number]min"
+- If "log" + hours/time quantity is present → ALWAYS log_time
+
+**LOG_EXPENSE** (CHECK SECOND) - User is logging a business expense:
+- "expense $49.99 software_tools - Claude Pro subscription"
+- "spent $150 equipment - new keyboard"
+- "expense $29 professional_dev - Udemy course"
+- Keywords: "expense", "spent $", "bought", "$[amount]"
 
 **QUERY** - User is asking about their tasks:
 - "what's due today", "what do I have today", "today's tasks"
@@ -30,7 +48,8 @@ First, identify what the user wants:
 
 **CREATE** - User wants to add new tasks/events:
 - "remind me to", "add task", "create", "schedule", "need to"
-- Any mention of specific tasks without query words
+- Only use this when there are NO time quantities (hours/minutes) in the message
+- Any mention of specific tasks without query words AND without time quantities
 
 **BATCH** - User wants bulk operations:
 - "reschedule all overdue to tomorrow"
@@ -53,19 +72,6 @@ First, identify what the user wants:
 
 **DELETE** - User wants to remove task(s):
 - "delete [task]", "remove [task]", "cancel [task]"
-
-**LOG_TIME** - User is logging time/hours worked:
-- "logged 2h product dev - built SAM scanner"
-- "logged 1.5 hours client work - review for ATC"
-- "30min admin - invoicing"
-- "3h content - wrote blog post about consulting"
-- Keywords: "logged", "log", "spent [time]", "[number]h", "[number] hours", "[number]min"
-
-**LOG_EXPENSE** - User is logging a business expense:
-- "expense $49.99 software_tools - Claude Pro subscription"
-- "spent $150 equipment - new keyboard"
-- "expense $29 professional_dev - Udemy course"
-- Keywords: "expense", "spent $", "bought", "$[amount]"
 
 ## RESPONSE FORMAT
 
@@ -185,7 +191,8 @@ IMPORTANT for task_graph:
   "description": "What was done",
   "entry_date": "YYYY-MM-DD",
   "billable": false,
-  "client_name": null
+  "client_name": null,
+  "charge_account_name": null
 }
 
 LOG_TIME rules:
@@ -195,6 +202,7 @@ LOG_TIME rules:
 - Set billable=true ONLY for client_work category
 - Extract client_name from context when billable (e.g., "client work for ATC" -> client_name: "ATC")
 - Default entry_date to today unless specified (e.g., "yesterday" = yesterday's date)
+- CHARGE ACCOUNTS: If the user's message includes a known charge account name (provided in context as "Available charge accounts"), set charge_account_name to the exact account name. The system will then look up and apply that account's billing settings (billable, client_name, rate). Example: "logged 2h Acme Corp - strategy call" with "Acme Corp" in available accounts → charge_account_name: "Acme Corp"
 
 ### For LOG_EXPENSE:
 {
@@ -282,6 +290,12 @@ Output: {"action":"log_time","hours":1.5,"category":"client_work","description":
 
 Input: "30min admin - invoicing"
 Output: {"action":"log_time","hours":0.5,"category":"admin","description":"Invoicing","entry_date":"[today]","billable":false,"client_name":null}
+
+Input: "Log 1.5 hrs of development work (IP dev) with a note that says \"developed and deployed time and expense tracking\". Not billable to a client."
+Output: {"action":"log_time","hours":1.5,"category":"product_dev","description":"Developed and deployed time and expense tracking","entry_date":"[today]","billable":false,"client_name":null}
+
+Input: "log 3 hours product dev - refactored auth module. not billable"
+Output: {"action":"log_time","hours":3,"category":"product_dev","description":"Refactored auth module","entry_date":"[today]","billable":false,"client_name":null}
 
 Input: "expense $49.99 software_tools - Claude Pro subscription"
 Output: {"action":"log_expense","amount":49.99,"category":"software_tools","vendor":"Anthropic","description":"Claude Pro subscription","expense_date":"[today]","is_recurring":true}
@@ -755,6 +769,28 @@ Use these EXACT dates when the user mentions relative days.`
       .select('id, name')
     const categoryList = categories?.map(c => c.name).join(', ') || 'Work, Personal, Home'
 
+    // Get charge accounts for context (look up user by phone)
+    const { data: smsUserPhone } = await supabase
+      .from('user_phones')
+      .select('user_id')
+      .eq('phone', from)
+      .single()
+
+    let chargeAccountsContext = ''
+    if (smsUserPhone?.user_id) {
+      const { data: chargeAccounts } = await supabase
+        .from('charge_accounts')
+        .select('name, billable, client_name, hourly_rate')
+        .eq('user_id', smsUserPhone.user_id)
+        .order('name')
+      if (chargeAccounts && chargeAccounts.length > 0) {
+        const accountList = chargeAccounts.map((a: { name: string; billable: boolean; client_name: string | null; hourly_rate: number | null }) =>
+          `"${a.name}" (${a.billable ? `billable, client: ${a.client_name || 'unspecified'}${a.hourly_rate ? `, $${a.hourly_rate}/hr` : ''}` : 'internal/non-billable'})`
+        ).join(', ')
+        chargeAccountsContext = `\nAvailable charge accounts: ${accountList}`
+      }
+    }
+
     // Parse SMS with Claude
     console.log('Calling Claude to parse SMS...')
     console.log('Date context:', dateContext)
@@ -768,7 +804,7 @@ Use these EXACT dates when the user mentions relative days.`
         messages: [
           {
             role: 'user',
-            content: `${dateContext}\n\nAvailable categories in the app: ${categoryList}\n\nParse this SMS message and extract all tasks/events:\n"${body}"`,
+            content: `${dateContext}\n\nAvailable categories in the app: ${categoryList}${chargeAccountsContext}\n\nParse this SMS message and extract all tasks/events:\n"${body}"`,
           },
         ],
       })
@@ -1354,6 +1390,29 @@ Use these EXACT dates when the user mentions relative days.`
           break
         }
 
+        // Apply charge account settings if one was matched
+        let timeBillable = parsed.billable || false
+        let timeClientName = parsed.client_name || null
+        let timeRateOverride: number | null = null
+        let chargeAccountLabel: string | null = null
+
+        if (parsed.charge_account_name) {
+          const { data: matchedAccount } = await supabase
+            .from('charge_accounts')
+            .select('name, billable, client_name, hourly_rate')
+            .eq('user_id', userPhone.user_id)
+            .ilike('name', parsed.charge_account_name)
+            .single()
+
+          if (matchedAccount) {
+            timeBillable = matchedAccount.billable
+            timeClientName = matchedAccount.client_name || null
+            timeRateOverride = matchedAccount.hourly_rate || null
+            chargeAccountLabel = matchedAccount.name
+            console.log(`Applied charge account: ${matchedAccount.name}`)
+          }
+        }
+
         const timeEntryDate = parsed.entry_date || dateInfo.today
 
         const { error: timeError } = await supabase
@@ -1364,8 +1423,9 @@ Use these EXACT dates when the user mentions relative days.`
             hours: parsed.hours,
             category: timeCategory,
             description: parsed.description || null,
-            billable: parsed.billable || false,
-            client_name: parsed.client_name || null,
+            billable: timeBillable,
+            client_name: timeClientName,
+            rate_override: timeRateOverride,
           })
           .select()
           .single()
@@ -1392,10 +1452,11 @@ Use these EXACT dates when the user mentions relative days.`
           professional_dev: 'Prof. Dev',
         }
         const timeCatLabel = timeCategoryLabels[timeCategory] || timeCategory
-        const billableTag = parsed.billable ? ' (billable)' : ''
-        const clientTag = parsed.client_name ? ` for ${parsed.client_name}` : ''
+        const billableTag = timeBillable ? ' (billable)' : ''
+        const clientTag = timeClientName ? ` for ${timeClientName}` : ''
+        const accountTag = chargeAccountLabel ? ` [${chargeAccountLabel}]` : ''
 
-        confirmationMsg = `Logged ${parsed.hours}h ${timeCatLabel}${clientTag}${billableTag}: "${parsed.description || 'No description'}"`
+        confirmationMsg = `Logged ${parsed.hours}h ${timeCatLabel}${clientTag}${billableTag}${accountTag}: "${parsed.description || 'No description'}"`
 
         await logSMS(supabase, {
           twilio_sid: messageSid,

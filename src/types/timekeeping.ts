@@ -70,6 +70,26 @@ export interface ExpenseFormData {
   is_recurring: boolean
 }
 
+export interface ChargeAccount {
+  id: string
+  user_id: string
+  name: string
+  billable: boolean
+  client_name: string | null
+  hourly_rate: number | null
+  notes: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ChargeAccountFormData {
+  name: string
+  billable: boolean
+  client_name: string
+  hourly_rate: number | null
+  notes: string
+}
+
 // Category display metadata
 export const TIME_CATEGORIES: { value: TimeCategory; label: string }[] = [
   { value: 'product_dev', label: 'Product Dev' },
