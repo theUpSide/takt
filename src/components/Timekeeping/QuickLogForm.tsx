@@ -6,7 +6,7 @@ import { useTimekeepingStore } from '@/stores/timekeepingStore'
 import { useItemStore } from '@/stores/itemStore'
 import { getTodayString } from '@/lib/dateUtils'
 import { TIME_CATEGORIES } from '@/types/timekeeping'
-import type { TimeCategory, TimeEntryFormData, ChargeAccount } from '@/types/timekeeping'
+import type { TimeCategory, TimeEntryFormData } from '@/types/timekeeping'
 import HoursStepper from './HoursStepper'
 import CategoryPills from './CategoryPills'
 
