@@ -10,60 +10,16 @@ const emptyForm = (): ChargeAccountFormData => ({
   notes: '',
 })
 
-export default function ChargeAccountsManager() {
-  const { chargeAccounts, createChargeAccount, updateChargeAccount, deleteChargeAccount } = useTimekeepingStore()
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [showNew, setShowNew] = useState(false)
-  const [form, setForm] = useState<ChargeAccountFormData>(emptyForm())
-  const [saving, setSaving] = useState(false)
+interface AccountFormProps {
+  form: ChargeAccountFormData
+  setForm: (form: ChargeAccountFormData) => void
+  saving: boolean
+  onSave: () => void
+  onCancel: () => void
+}
 
-  const handleStartEdit = (account: ChargeAccount) => {
-    setShowNew(false)
-    setEditingId(account.id)
-    setForm({
-      name: account.name,
-      billable: account.billable,
-      client_name: account.client_name ?? '',
-      hourly_rate: account.hourly_rate,
-      notes: account.notes ?? '',
-    })
-  }
-
-  const handleCancelEdit = () => {
-    setEditingId(null)
-    setShowNew(false)
-    setForm(emptyForm())
-  }
-
-  const handleSaveEdit = async () => {
-    if (!editingId || !form.name.trim()) return
-    setSaving(true)
-    const result = await updateChargeAccount(editingId, form)
-    setSaving(false)
-    if (result) {
-      setEditingId(null)
-      setForm(emptyForm())
-    }
-  }
-
-  const handleCreate = async () => {
-    if (!form.name.trim()) return
-    setSaving(true)
-    const result = await createChargeAccount(form)
-    setSaving(false)
-    if (result) {
-      setShowNew(false)
-      setForm(emptyForm())
-    }
-  }
-
-  const handleDelete = async (id: string, name: string) => {
-    if (confirm(`Delete charge account "${name}"? This won't affect existing time entries.`)) {
-      await deleteChargeAccount(id)
-    }
-  }
-
-  const AccountForm = ({ onSave, onCancel }: { onSave: () => void; onCancel: () => void }) => (
+function AccountForm({ form, setForm, saving, onSave, onCancel }: AccountFormProps) {
+  return (
     <div className="flex flex-col gap-3 rounded-lg border border-theme-accent-primary/50 bg-theme-bg-tertiary/60 p-4">
       <div>
         <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-theme-text-muted">
@@ -141,6 +97,7 @@ export default function ChargeAccountsManager() {
 
       <div className="flex gap-2 pt-1">
         <button
+          type="button"
           onClick={onSave}
           disabled={saving || !form.name.trim()}
           className="rounded-lg bg-theme-accent-primary px-4 py-2 text-sm font-semibold text-white hover:opacity-90 transition-all-fast btn-press disabled:opacity-50"
@@ -148,6 +105,7 @@ export default function ChargeAccountsManager() {
           {saving ? 'Saving...' : 'Save'}
         </button>
         <button
+          type="button"
           onClick={onCancel}
           className="rounded-lg border border-theme-border-primary px-4 py-2 text-sm font-medium text-theme-text-secondary hover:bg-theme-bg-tertiary transition-all-fast"
         >
@@ -156,6 +114,60 @@ export default function ChargeAccountsManager() {
       </div>
     </div>
   )
+}
+
+export default function ChargeAccountsManager() {
+  const { chargeAccounts, createChargeAccount, updateChargeAccount, deleteChargeAccount } = useTimekeepingStore()
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [showNew, setShowNew] = useState(false)
+  const [form, setForm] = useState<ChargeAccountFormData>(emptyForm())
+  const [saving, setSaving] = useState(false)
+
+  const handleStartEdit = (account: ChargeAccount) => {
+    setShowNew(false)
+    setEditingId(account.id)
+    setForm({
+      name: account.name,
+      billable: account.billable,
+      client_name: account.client_name ?? '',
+      hourly_rate: account.hourly_rate,
+      notes: account.notes ?? '',
+    })
+  }
+
+  const handleCancelEdit = () => {
+    setEditingId(null)
+    setShowNew(false)
+    setForm(emptyForm())
+  }
+
+  const handleSaveEdit = async () => {
+    if (!editingId || !form.name.trim()) return
+    setSaving(true)
+    const result = await updateChargeAccount(editingId, form)
+    setSaving(false)
+    if (result) {
+      setEditingId(null)
+      setForm(emptyForm())
+    }
+  }
+
+  const handleCreate = async () => {
+    if (!form.name.trim()) return
+    setSaving(true)
+    const result = await createChargeAccount(form)
+    setSaving(false)
+    if (result) {
+      setShowNew(false)
+      setForm(emptyForm())
+    }
+  }
+
+  const handleDelete = async (id: string, name: string) => {
+    if (confirm(`Delete charge account "${name}"? This won't affect existing time entries.`)) {
+      await deleteChargeAccount(id)
+    }
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -174,7 +186,7 @@ export default function ChargeAccountsManager() {
       </div>
 
       {showNew && (
-        <AccountForm onSave={handleCreate} onCancel={handleCancelEdit} />
+        <AccountForm form={form} setForm={setForm} saving={saving} onSave={handleCreate} onCancel={handleCancelEdit} />
       )}
 
       <div className="flex flex-col gap-2">
@@ -185,7 +197,7 @@ export default function ChargeAccountsManager() {
           >
             {editingId === account.id ? (
               <div className="p-3">
-                <AccountForm onSave={handleSaveEdit} onCancel={handleCancelEdit} />
+                <AccountForm form={form} setForm={setForm} saving={saving} onSave={handleSaveEdit} onCancel={handleCancelEdit} />
               </div>
             ) : (
               <div className="flex items-center gap-3 p-3">
