@@ -299,6 +299,7 @@ export const useTimekeepingStore = create<TimekeepingState>((set, get) => ({
         user_id: userId,
         name: data.name.trim(),
         billable: data.billable,
+        investment_internal: data.investment_internal,
         client_name: data.billable ? (data.client_name || null) : null,
         hourly_rate: data.billable ? (data.hourly_rate ?? null) : null,
         notes: data.notes || null,
@@ -323,6 +324,7 @@ export const useTimekeepingStore = create<TimekeepingState>((set, get) => ({
     const update: Record<string, unknown> = {}
     if (data.name !== undefined) update.name = data.name.trim()
     if (data.billable !== undefined) update.billable = data.billable
+    if (data.investment_internal !== undefined) update.investment_internal = data.investment_internal
     if (data.client_name !== undefined) update.client_name = data.client_name || null
     if (data.hourly_rate !== undefined) update.hourly_rate = data.hourly_rate ?? null
     if (data.notes !== undefined) update.notes = data.notes || null

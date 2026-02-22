@@ -221,7 +221,7 @@ export default function QuickLogForm({ onSwitchToExpense }: QuickLogFormProps) {
             <option value="">— No account —</option>
             {chargeAccounts.map((account) => (
               <option key={account.id} value={account.id}>
-                {account.name}{account.billable ? ` · ${account.client_name || 'Billable'}${account.hourly_rate ? ` $${account.hourly_rate}/hr` : ''}` : ' · Internal'}
+                {account.name}{account.billable ? ` · ${account.client_name || 'Billable'}${account.hourly_rate ? ` $${account.hourly_rate}/hr` : ''}` : account.investment_internal ? ' · Investment Internal' : ' · Internal'}
               </option>
             ))}
           </select>

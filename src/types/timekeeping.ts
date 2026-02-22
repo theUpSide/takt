@@ -75,6 +75,7 @@ export interface ChargeAccount {
   user_id: string
   name: string
   billable: boolean
+  investment_internal: boolean
   client_name: string | null
   hourly_rate: number | null
   notes: string | null
@@ -85,6 +86,7 @@ export interface ChargeAccount {
 export interface ChargeAccountFormData {
   name: string
   billable: boolean
+  investment_internal: boolean
   client_name: string
   hourly_rate: number | null
   notes: string

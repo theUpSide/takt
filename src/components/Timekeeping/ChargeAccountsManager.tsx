@@ -5,6 +5,7 @@ import type { ChargeAccount, ChargeAccountFormData } from '@/types/timekeeping'
 const emptyForm = (): ChargeAccountFormData => ({
   name: '',
   billable: false,
+  investment_internal: false,
   client_name: '',
   hourly_rate: null,
   notes: '',
@@ -35,21 +36,39 @@ function AccountForm({ form, setForm, saving, onSave, onCancel }: AccountFormPro
         />
       </div>
 
-      <label className="flex items-center gap-3 cursor-pointer">
-        <div
-          className={`relative h-6 w-11 rounded-full transition-all-fast ${
-            form.billable ? 'bg-theme-accent-primary' : 'bg-theme-bg-secondary border border-theme-border-primary'
-          }`}
-          onClick={() => setForm({ ...form, billable: !form.billable })}
-        >
+      <div className="flex flex-wrap gap-x-6 gap-y-3">
+        <label className="flex items-center gap-3 cursor-pointer">
           <div
-            className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
-              form.billable ? 'translate-x-5' : 'translate-x-0.5'
+            className={`relative h-6 w-11 rounded-full transition-all-fast ${
+              form.billable ? 'bg-theme-accent-primary' : 'bg-theme-bg-secondary border border-theme-border-primary'
             }`}
-          />
-        </div>
-        <span className="text-sm font-medium text-theme-text-secondary">Billable</span>
-      </label>
+            onClick={() => setForm({ ...form, billable: !form.billable })}
+          >
+            <div
+              className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                form.billable ? 'translate-x-5' : 'translate-x-0.5'
+              }`}
+            />
+          </div>
+          <span className="text-sm font-medium text-theme-text-secondary">Billable</span>
+        </label>
+
+        <label className="flex items-center gap-3 cursor-pointer">
+          <div
+            className={`relative h-6 w-11 rounded-full transition-all-fast ${
+              form.investment_internal ? 'bg-purple-500' : 'bg-theme-bg-secondary border border-theme-border-primary'
+            }`}
+            onClick={() => setForm({ ...form, investment_internal: !form.investment_internal })}
+          >
+            <div
+              className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                form.investment_internal ? 'translate-x-5' : 'translate-x-0.5'
+              }`}
+            />
+          </div>
+          <span className="text-sm font-medium text-theme-text-secondary">Investment Internal</span>
+        </label>
+      </div>
 
       {form.billable && (
         <div className="flex flex-col gap-3 pl-2 border-l-2 border-theme-accent-primary/30">
@@ -129,6 +148,7 @@ export default function ChargeAccountsManager() {
     setForm({
       name: account.name,
       billable: account.billable,
+      investment_internal: account.investment_internal,
       client_name: account.client_name ?? '',
       hourly_rate: account.hourly_rate,
       notes: account.notes ?? '',
@@ -210,6 +230,11 @@ export default function ChargeAccountsManager() {
                     {account.billable && (
                       <span className="rounded-full bg-green-500/15 px-2 py-0.5 text-xs font-medium text-green-400">
                         Billable
+                      </span>
+                    )}
+                    {account.investment_internal && (
+                      <span className="rounded-full bg-purple-500/15 px-2 py-0.5 text-xs font-medium text-purple-400">
+                        Investment Internal
                       </span>
                     )}
                   </div>
