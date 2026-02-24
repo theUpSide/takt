@@ -6,14 +6,16 @@ import ExpenseEntryForm from '@/components/Timekeeping/ExpenseEntryForm'
 import TimekeepingDashboard from '@/components/Timekeeping/TimekeepingDashboard'
 import ChargeAccountsManager from '@/components/Timekeeping/ChargeAccountsManager'
 import TimeGrid from '@/components/Timekeeping/TimeGrid'
+import ExpenseReview from '@/components/Timekeeping/ExpenseReview'
 
-type SubView = 'log' | 'dashboard' | 'grid' | 'accounts'
+type SubView = 'log' | 'dashboard' | 'grid' | 'expenses' | 'accounts'
 type LogMode = 'time' | 'expense'
 
 const SUB_VIEWS: { id: SubView; label: string }[] = [
   { id: 'log', label: 'Log' },
   { id: 'dashboard', label: 'Dashboard' },
   { id: 'grid', label: 'Grid' },
+  { id: 'expenses', label: 'Expenses' },
   { id: 'accounts', label: 'Accounts' },
 ]
 
@@ -27,10 +29,10 @@ export default function TimekeepingView() {
     fetchTimeEntries()
   }, [fetchChargeAccounts, fetchTimeEntries])
 
-  const isGrid = subView === 'grid'
+  const isWide = subView === 'grid' || subView === 'expenses'
 
   return (
-    <div className={isGrid ? 'px-4 md:px-6' : 'mx-auto max-w-2xl'}>
+    <div className={isWide ? 'px-4 md:px-6' : 'mx-auto max-w-2xl'}>
       {/* Sub-view toggle */}
       <div className="mb-6 flex items-center justify-center">
         <div className="flex rounded-lg bg-theme-bg-tertiary p-1 transition-theme">
@@ -67,6 +69,8 @@ export default function TimekeepingView() {
         <TimekeepingDashboard />
       ) : subView === 'grid' ? (
         <TimeGrid />
+      ) : subView === 'expenses' ? (
+        <ExpenseReview />
       ) : (
         <div className="rounded-xl border border-theme-border-primary bg-theme-bg-card p-4 md:p-6 shadow-lg animate-fade-in">
           <h2 className="mb-1 text-lg font-semibold text-theme-text-primary">Charge Accounts</h2>
