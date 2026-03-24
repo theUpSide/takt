@@ -43,9 +43,14 @@ export default function CalendarSources() {
     if (!formData.name || !formData.ics_url) return
 
     if (editingId === 'new') {
+      const { data: session } = await supabase.auth.getSession()
+      const userId = session?.session?.user?.id
+      if (!userId) return
+
       const { data } = await supabase
         .from('calendar_sources')
         .insert({
+          user_id: userId,
           name: formData.name,
           ics_url: formData.ics_url,
           default_category_id: formData.default_category_id || null,

@@ -84,9 +84,19 @@ export const useItemStore = create<ItemState>((set, get) => ({
 
   createItem: async (data) => {
     const toast = useToastStore.getState()
+
+    const { data: session } = await supabase.auth.getSession()
+    const userId = session?.session?.user?.id
+    if (!userId) {
+      set({ error: 'Not authenticated' })
+      toast.error('Not authenticated')
+      return null
+    }
+
     const { data: newItem, error } = await supabase
       .from('items')
       .insert({
+        user_id: userId,
         type: data.type ?? 'task',
         title: data.title ?? '',
         description: data.description,
@@ -320,9 +330,17 @@ export const useItemStore = create<ItemState>((set, get) => ({
   },
 
   addDependency: async (predecessorId, successorId) => {
+    const { data: session } = await supabase.auth.getSession()
+    const userId = session?.session?.user?.id
+    if (!userId) {
+      set({ error: 'Not authenticated' })
+      return false
+    }
+
     const { data, error } = await supabase
       .from('dependencies')
       .insert({
+        user_id: userId,
         predecessor_id: predecessorId,
         successor_id: successorId,
       })
