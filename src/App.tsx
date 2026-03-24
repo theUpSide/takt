@@ -1,9 +1,11 @@
-import { useEffect } from 'react'
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useAuthStore } from '@/stores/authStore'
 import { useAIStore } from '@/stores/aiStore'
+import { supabase } from '@/lib/supabase'
 import Layout from '@/components/Layout/Layout'
 import LoginPage from '@/pages/LoginPage'
+import OnboardingPage from '@/pages/OnboardingPage'
 import KanbanView from '@/components/Views/KanbanView'
 import ListView from '@/components/Views/ListView'
 import GanttView from '@/components/Views/GanttView'
@@ -15,8 +17,27 @@ import CommandBar from '@/components/Common/CommandBar'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuthStore()
+  const location = useLocation()
+  const [onboardingChecked, setOnboardingChecked] = useState(false)
+  const [needsOnboarding, setNeedsOnboarding] = useState(false)
 
-  if (loading) {
+  useEffect(() => {
+    if (!user) return
+
+    const checkOnboarding = async () => {
+      const { count } = await supabase
+        .from('user_phones')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+
+      setNeedsOnboarding(count === 0)
+      setOnboardingChecked(true)
+    }
+
+    checkOnboarding()
+  }, [user])
+
+  if (loading || (user && !onboardingChecked)) {
     return (
       <div className="flex h-screen items-center justify-center">
         <div className="text-lg">Loading...</div>
@@ -26,6 +47,11 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
   if (!user) {
     return <Navigate to="/login" replace />
+  }
+
+  // Redirect to onboarding if no phone registered (but don't redirect if already on onboarding)
+  if (needsOnboarding && location.pathname !== '/app/onboarding') {
+    return <Navigate to="/app/onboarding" replace />
   }
 
   return <>{children}</>
@@ -60,6 +86,7 @@ function App() {
           }
         >
           <Route index element={<Navigate to="kanban" replace />} />
+          <Route path="onboarding" element={<OnboardingPage />} />
           <Route path="kanban" element={<KanbanView />} />
           <Route path="list" element={<ListView />} />
           <Route path="gantt" element={<GanttView />} />
