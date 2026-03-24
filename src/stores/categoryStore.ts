@@ -38,12 +38,20 @@ export const useCategoryStore = create<CategoryState>((set, get) => ({
   },
 
   createCategory: async (data) => {
+    const { data: session } = await supabase.auth.getSession()
+    const userId = session?.session?.user?.id
+    if (!userId) {
+      set({ error: 'Not authenticated' })
+      return null
+    }
+
     const categories = get().categories
     const maxOrder = categories.length > 0 ? Math.max(...categories.map((c) => c.sort_order)) : 0
 
     const { data: newCategory, error } = await supabase
       .from('categories')
       .insert({
+        user_id: userId,
         name: data.name ?? 'New Category',
         color: data.color ?? '#6B7280',
         sort_order: data.sort_order ?? maxOrder + 1,

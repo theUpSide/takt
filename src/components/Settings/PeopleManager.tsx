@@ -51,9 +51,14 @@ export default function PeopleManager() {
       .filter(Boolean)
 
     if (editingId === 'new') {
+      const { data: session } = await supabase.auth.getSession()
+      const userId = session?.session?.user?.id
+      if (!userId) return
+
       const { data } = await supabase
         .from('people')
         .insert({
+          user_id: userId,
           name: formData.name,
           aliases,
           default_category_id: formData.default_category_id || null,

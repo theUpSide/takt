@@ -4,6 +4,7 @@ export type ItemSource = 'manual' | 'sms' | 'ics'
 
 export interface Item {
   id: string
+  user_id: string
   type: ItemType
   title: string
   description: string | null
@@ -47,6 +48,7 @@ export interface Event extends Item {
 // Category
 export interface Category {
   id: string
+  user_id: string
   name: string
   color: string
   sort_order: number
@@ -72,6 +74,7 @@ export interface Project {
 // Dependency
 export interface Dependency {
   id: string
+  user_id: string
   predecessor_id: string
   successor_id: string
   created_at: string
@@ -83,6 +86,7 @@ export interface Dependency {
 // Calendar Source
 export interface CalendarSource {
   id: string
+  user_id: string
   name: string
   ics_url: string
   default_category_id: string | null
@@ -95,6 +99,7 @@ export interface CalendarSource {
 // Person (for NLP category mapping)
 export interface Person {
   id: string
+  user_id: string
   name: string
   aliases: string[]
   default_category_id: string | null
@@ -106,6 +111,7 @@ export interface Person {
 // SMS Log
 export interface SmsLog {
   id: string
+  user_id: string
   twilio_sid: string
   from_number: string
   body: string
