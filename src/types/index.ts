@@ -142,7 +142,7 @@ export interface ParsedSmsResult {
 }
 
 // View types
-export type ViewType = 'kanban' | 'list' | 'gantt' | 'planner' | 'time'
+export type ViewType = 'kanban' | 'list' | 'gantt' | 'planner' | 'time' | 'clients'
 
 // Re-export timekeeping types
 export type {

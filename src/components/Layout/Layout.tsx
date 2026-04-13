@@ -7,6 +7,8 @@ import { useItemStore } from '@/stores/itemStore'
 import { useCategoryStore } from '@/stores/categoryStore'
 import { useThemeStore } from '@/stores/themeStore'
 import { useTimekeepingStore } from '@/stores/timekeepingStore'
+import { useClientStore } from '@/stores/clientStore'
+import { useEngagementStore } from '@/stores/engagementStore'
 import ItemModal from '@/components/Items/ItemModal'
 import BatchActionToolbar from '@/components/Common/BatchActionToolbar'
 
@@ -19,8 +21,11 @@ export default function Layout() {
   const {
     fetchTimeEntries,
     fetchExpenses,
+    fetchChargeAccounts,
     subscribeToChanges: subscribeTimekeeping,
   } = useTimekeepingStore()
+  const { fetchClients, subscribeToChanges: subscribeClients } = useClientStore()
+  const { fetchEngagements, subscribeToChanges: subscribeEngagements } = useEngagementStore()
 
   useEffect(() => {
     // Fetch initial data
@@ -29,18 +34,39 @@ export default function Layout() {
     fetchCategories()
     fetchTimeEntries()
     fetchExpenses()
+    fetchChargeAccounts()
+    fetchClients()
+    fetchEngagements()
 
     // Subscribe to real-time updates
     const unsubItems = subscribeItems()
     const unsubCategories = subscribeCategories()
     const unsubTimekeeping = subscribeTimekeeping()
+    const unsubClients = subscribeClients()
+    const unsubEngagements = subscribeEngagements()
 
     return () => {
       unsubItems()
       unsubCategories()
       unsubTimekeeping()
+      unsubClients()
+      unsubEngagements()
     }
-  }, [fetchItems, fetchDependencies, fetchCategories, subscribeItems, subscribeCategories, fetchTimeEntries, fetchExpenses, subscribeTimekeeping])
+  }, [
+    fetchItems,
+    fetchDependencies,
+    fetchCategories,
+    subscribeItems,
+    subscribeCategories,
+    fetchTimeEntries,
+    fetchExpenses,
+    fetchChargeAccounts,
+    subscribeTimekeeping,
+    fetchClients,
+    subscribeClients,
+    fetchEngagements,
+    subscribeEngagements,
+  ])
 
   // Apply theme class to document element
   useEffect(() => {
