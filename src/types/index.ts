@@ -1,3 +1,5 @@
+import type { Engagement } from './engagement'
+
 // Item types
 export type ItemType = 'task' | 'event'
 export type ItemSource = 'manual' | 'sms' | 'ics'
@@ -27,11 +29,14 @@ export interface Item {
   duration_minutes: number | null  // How long the task takes (default: 30)
   // Subtask support
   parent_id: string | null         // Parent task ID for subtasks
+  // Engagement linkage (for client-work action tracking)
+  engagement_id: string | null
   // Joined relations
   category?: Category | null
   project?: Project | null
   parent?: Item | null             // Parent item (when fetched)
   children?: Item[]                // Child subtasks (when fetched)
+  engagement?: Engagement | null
 }
 
 export interface Task extends Item {
@@ -147,8 +152,26 @@ export type {
   Expense,
   TimeEntryFormData,
   ExpenseFormData,
+  ChargeAccount,
+  ChargeAccountFormData,
 } from './timekeeping'
 export { TIME_CATEGORIES, EXPENSE_CATEGORIES } from './timekeeping'
+
+// Re-export engagement types
+export type {
+  RelationshipStatus,
+  EngagementType,
+  EngagementStatus,
+  Client,
+  Engagement,
+  ClientFormData,
+  EngagementFormData,
+} from './engagement'
+export {
+  RELATIONSHIP_STATUSES,
+  ENGAGEMENT_TYPES,
+  ENGAGEMENT_STATUSES,
+} from './engagement'
 
 // Form types
 export interface TaskFormData {

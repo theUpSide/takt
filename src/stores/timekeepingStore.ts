@@ -95,6 +95,7 @@ export const useTimekeepingStore = create<TimekeepingState>((set, get) => ({
         billable: data.billable,
         client_name: data.billable ? (data.client_name || null) : null,
         rate_override: data.rate_override,
+        engagement_id: data.engagement_id ?? null,
       })
       .select()
       .single()
