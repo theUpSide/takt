@@ -112,6 +112,8 @@ export const useItemStore = create<ItemState>((set, get) => ({
         duration_minutes: data.duration_minutes ?? 30,
         // Subtask support
         parent_id: data.parent_id ?? null,
+        // Engagement linkage
+        engagement_id: data.engagement_id ?? null,
       })
       .select('*, category:categories(*), project:projects(*)')
       .single()

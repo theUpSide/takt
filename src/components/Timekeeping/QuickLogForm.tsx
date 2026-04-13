@@ -4,9 +4,11 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { useTimekeepingStore } from '@/stores/timekeepingStore'
 import { useItemStore } from '@/stores/itemStore'
+import { useClientStore } from '@/stores/clientStore'
 import { getTodayString } from '@/lib/dateUtils'
 import { TIME_CATEGORIES } from '@/types/timekeeping'
 import type { TimeCategory, TimeEntryFormData } from '@/types/timekeeping'
+import EngagementPicker from '@/components/Clients/EngagementPicker'
 import HoursStepper from './HoursStepper'
 import CategoryPills from './CategoryPills'
 
@@ -22,6 +24,7 @@ const schema = z.object({
   billable: z.boolean(),
   client_name: z.string(),
   rate_override: z.number().nullable(),
+  engagement_id: z.string().nullable().optional(),
 })
 
 interface QuickLogFormProps {
@@ -31,6 +34,7 @@ interface QuickLogFormProps {
 export default function QuickLogForm({ onSwitchToExpense }: QuickLogFormProps) {
   const { createTimeEntry, getDistinctClientNames, chargeAccounts } = useTimekeepingStore()
   const items = useItemStore((s) => s.items)
+  const clients = useClientStore((s) => s.clients)
   const [saving, setSaving] = useState(false)
   const [selectedAccountId, setSelectedAccountId] = useState<string>('')
   const [lastCategory, setLastCategory] = useState<TimeCategory | null>(() => {
@@ -52,6 +56,7 @@ export default function QuickLogForm({ onSwitchToExpense }: QuickLogFormProps) {
       billable: false,
       client_name: '',
       rate_override: null,
+      engagement_id: null,
     },
   })
 
@@ -98,6 +103,7 @@ export default function QuickLogForm({ onSwitchToExpense }: QuickLogFormProps) {
         billable: false,
         client_name: '',
         rate_override: null,
+        engagement_id: null,
       })
     }
   }
@@ -201,6 +207,40 @@ export default function QuickLogForm({ onSwitchToExpense }: QuickLogFormProps) {
                 </option>
               ))}
             </select>
+          )}
+        />
+      </div>
+
+      {/* Engagement picker — auto-fills billable, client, and rate from the chosen engagement */}
+      <div>
+        <label htmlFor="engagement" className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-theme-text-muted">
+          Engagement (optional)
+        </label>
+        <Controller
+          name="engagement_id"
+          control={control}
+          render={({ field }) => (
+            <EngagementPicker
+              id="engagement"
+              value={field.value ?? null}
+              onChange={(id, engagement) => {
+                field.onChange(id)
+                if (engagement) {
+                  // Auto-fill billing fields. hourly_1099 + retainer carry a rate;
+                  // pursuit is pre-revenue so we flip billable off.
+                  const isBillable =
+                    engagement.engagement_type === 'hourly_1099' ||
+                    engagement.engagement_type === 'retainer' ||
+                    engagement.engagement_type === 'fixed_price'
+                  setValue('billable', isBillable)
+                  setValue('rate_override', engagement.billing_rate)
+                  // Client name is denormalized for back-compat; fill from linked client.
+                  const clientName =
+                    clients.find((c) => c.id === engagement.client_id)?.name ?? ''
+                  setValue('client_name', clientName)
+                }
+              }}
+            />
           )}
         />
       </div>

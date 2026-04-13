@@ -1,10 +1,11 @@
-import { useForm } from 'react-hook-form'
+import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { useItemStore } from '@/stores/itemStore'
 import { useCategoryStore } from '@/stores/categoryStore'
 import { formatForInput } from '@/lib/dateUtils'
 import DependencyPicker from './DependencyPicker'
+import EngagementPicker from '@/components/Clients/EngagementPicker'
 import type { Item } from '@/types'
 
 const taskSchema = z.object({
@@ -13,6 +14,7 @@ const taskSchema = z.object({
   category_id: z.string().nullable(),
   due_date: z.string().nullable(),
   parent_id: z.string().nullable(),
+  engagement_id: z.string().nullable(),
 })
 
 type TaskFormData = z.infer<typeof taskSchema>
@@ -43,6 +45,7 @@ export default function TaskForm({ item, onSuccess }: TaskFormProps) {
   const {
     register,
     handleSubmit,
+    control,
     formState: { errors, isSubmitting },
   } = useForm<TaskFormData>({
     resolver: zodResolver(taskSchema),
@@ -52,6 +55,7 @@ export default function TaskForm({ item, onSuccess }: TaskFormProps) {
       category_id: item?.category_id || null,
       due_date: item?.due_date ? formatForInput(item.due_date) : null,
       parent_id: item?.parent_id || null,
+      engagement_id: item?.engagement_id || null,
     },
   })
 
@@ -67,6 +71,7 @@ export default function TaskForm({ item, onSuccess }: TaskFormProps) {
       category_id: data.category_id || null,
       due_date: data.due_date ? new Date(data.due_date).toISOString() : null,
       parent_id: data.parent_id || null,
+      engagement_id: data.engagement_id || null,
     }
 
     if (item) {
@@ -171,6 +176,25 @@ export default function TaskForm({ item, onSuccess }: TaskFormProps) {
             </option>
           ))}
         </select>
+      </div>
+
+      {/* Engagement link (optional) */}
+      <div>
+        <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+          Engagement
+          <span className="ml-1 text-xs text-gray-500">(optional - links to a client engagement)</span>
+        </label>
+        <Controller
+          name="engagement_id"
+          control={control}
+          render={({ field }) => (
+            <EngagementPicker
+              value={field.value ?? null}
+              onChange={(id) => field.onChange(id)}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+            />
+          )}
+        />
       </div>
 
       {item && (
