@@ -3,13 +3,14 @@ import CategoryManager from '@/components/Settings/CategoryManager'
 import CalendarSources from '@/components/Settings/CalendarSources'
 import PeopleManager from '@/components/Settings/PeopleManager'
 import SMSLogViewer from '@/components/Settings/SMSLogViewer'
+import BusinessSettings from '@/components/Settings/BusinessSettings'
 import { useThemeStore, themeLabels, themeDescriptions, type ThemeName } from '@/stores/themeStore'
 import { useSettingsStore, commonTimezones } from '@/stores/settingsStore'
 import { useAIStore } from '@/stores/aiStore'
 import { useToastStore } from '@/stores/toastStore'
 import clsx from 'clsx'
 
-type SettingsTab = 'appearance' | 'ai' | 'sms' | 'categories' | 'calendars' | 'people'
+type SettingsTab = 'appearance' | 'business' | 'ai' | 'sms' | 'categories' | 'calendars' | 'people'
 
 const themeOptions: ThemeName[] = ['takt', 'default', 'midnight', 'matrix', 'light']
 
@@ -50,6 +51,15 @@ export default function SettingsPage() {
       icon: (
         <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
+        </svg>
+      ),
+    },
+    {
+      id: 'business',
+      label: 'Business',
+      icon: (
+        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
         </svg>
       ),
     },
@@ -403,6 +413,7 @@ export default function SettingsPage() {
             </div>
           </div>
         )}
+        {activeTab === 'business' && <BusinessSettings />}
         {activeTab === 'sms' && <SMSLogViewer />}
         {activeTab === 'categories' && <CategoryManager />}
         {activeTab === 'calendars' && <CalendarSources />}

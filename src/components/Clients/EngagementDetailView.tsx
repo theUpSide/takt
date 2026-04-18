@@ -10,6 +10,7 @@ import {
 } from '@/types/engagement'
 import EngagementForm from './EngagementForm'
 import DeliverablesList from './DeliverablesList'
+import InvoiceModal from './InvoiceModal'
 import { ENGAGEMENT_STATUS_CLASSES } from './statusStyles'
 
 export default function EngagementDetailView() {
@@ -20,6 +21,7 @@ export default function EngagementDetailView() {
   const { items } = useItemStore()
   const { timeEntries } = useTimekeepingStore()
   const [editing, setEditing] = useState(false)
+  const [invoicing, setInvoicing] = useState(false)
 
   const engagement = useMemo(() => engagements.find((e) => e.id === id), [engagements, id])
   const client = useMemo(
@@ -113,7 +115,15 @@ export default function EngagementDetailView() {
             </p>
           )}
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
+          {(engagement.engagement_type === 'hourly_1099' || engagement.engagement_type === 'retainer') && (
+            <button
+              onClick={() => setInvoicing(true)}
+              className="rounded-lg bg-theme-accent-primary px-3 py-1.5 text-sm font-semibold text-white hover:opacity-90 transition-all-fast btn-press"
+            >
+              Generate Invoice
+            </button>
+          )}
           <button
             onClick={() => setEditing(true)}
             className="rounded-lg border border-theme-border-primary px-3 py-1.5 text-sm font-medium text-theme-text-secondary hover:bg-theme-bg-hover hover:text-theme-text-primary transition-all-fast"
@@ -236,6 +246,12 @@ export default function EngagementDetailView() {
         isOpen={editing}
         onClose={() => setEditing(false)}
         engagement={engagement}
+      />
+      <InvoiceModal
+        isOpen={invoicing}
+        onClose={() => setInvoicing(false)}
+        engagement={engagement}
+        client={client ?? null}
       />
     </div>
   )
