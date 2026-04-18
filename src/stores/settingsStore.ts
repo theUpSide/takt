@@ -6,10 +6,13 @@ interface SettingsState {
   timezone: string
   // Whether to auto-detect timezone from device
   autoDetectTimezone: boolean
+  // Monthly revenue target in dollars, used by the revenue view
+  monthlyRevenueTarget: number | null
 
   // Actions
   setTimezone: (timezone: string) => void
   setAutoDetectTimezone: (autoDetect: boolean) => void
+  setMonthlyRevenueTarget: (target: number | null) => void
   detectTimezone: () => string
 }
 
@@ -61,6 +64,7 @@ export const useSettingsStore = create<SettingsState>()(
     (set, get) => ({
       timezone: getDeviceTimezone(),
       autoDetectTimezone: true,
+      monthlyRevenueTarget: null,
 
       setTimezone: (timezone) => {
         set({ timezone, autoDetectTimezone: false })
@@ -73,6 +77,10 @@ export const useSettingsStore = create<SettingsState>()(
         } else {
           set({ autoDetectTimezone: autoDetect })
         }
+      },
+
+      setMonthlyRevenueTarget: (target) => {
+        set({ monthlyRevenueTarget: target })
       },
 
       detectTimezone: () => {

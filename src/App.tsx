@@ -12,6 +12,8 @@ import TimekeepingView from '@/components/Views/TimekeepingView'
 import ClientsView from '@/components/Clients/ClientsView'
 import ClientDetailView from '@/components/Clients/ClientDetailView'
 import EngagementDetailView from '@/components/Clients/EngagementDetailView'
+import WeeklyReviewView from '@/components/Clients/WeeklyReviewView'
+import RevenueView from '@/components/Clients/RevenueView'
 import SettingsPage from '@/pages/SettingsPage'
 import ToastContainer from '@/components/Common/Toast'
 import CommandBar from '@/components/Common/CommandBar'
@@ -71,6 +73,8 @@ function App() {
           <Route path="clients" element={<ClientsView />} />
           <Route path="clients/:id" element={<ClientDetailView />} />
           <Route path="engagements/:id" element={<EngagementDetailView />} />
+          <Route path="review" element={<WeeklyReviewView />} />
+          <Route path="revenue" element={<RevenueView />} />
           <Route path="settings" element={<SettingsPage />} />
         </Route>
         <Route path="/" element={<Navigate to="/app" replace />} />
