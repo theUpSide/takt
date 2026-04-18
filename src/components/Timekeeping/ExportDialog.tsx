@@ -1,6 +1,8 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useTimekeepingStore } from '@/stores/timekeepingStore'
+import { useEngagementStore } from '@/stores/engagementStore'
+import { useClientStore } from '@/stores/clientStore'
 import { useToastStore } from '@/stores/toastStore'
 import { getTodayString } from '@/lib/dateUtils'
 import { format, subMonths } from 'date-fns'
@@ -13,7 +15,23 @@ interface ExportDialogProps {
 
 export default function ExportDialog({ onClose }: ExportDialogProps) {
   const { timeEntries, expenses } = useTimekeepingStore()
+  const engagements = useEngagementStore((s) => s.engagements)
+  const clients = useClientStore((s) => s.clients)
   const toast = useToastStore()
+
+  // engagement_id -> client name, used to label the "Client" column in exports.
+  const clientByEngagement = useMemo(() => {
+    const clientsById = new Map(clients.map((c) => [c.id, c.name]))
+    const map = new Map<string, string>()
+    for (const e of engagements) {
+      const name = clientsById.get(e.client_id)
+      if (name) map.set(e.id, name)
+    }
+    return map
+  }, [engagements, clients])
+
+  const clientNameFor = (entry: TimeEntry): string =>
+    entry.engagement_id ? clientByEngagement.get(entry.engagement_id) ?? '' : ''
 
   const [startDate, setStartDate] = useState(() =>
     format(subMonths(new Date(), 1), 'yyyy-MM-dd')
@@ -117,7 +135,7 @@ export default function ExportDialog({ onClose }: ExportDialogProps) {
       const totalHours = filteredTime.reduce((s, e) => s + Number(e.hours), 0)
       const totalExpenseAmt = filteredExpenses.reduce((s, e) => s + Number(e.amount), 0)
 
-      const html = buildPdfHtml(filteredTime, filteredExpenses, startDate, endDate, totalHours, totalExpenseAmt)
+      const html = buildPdfHtml(filteredTime, filteredExpenses, startDate, endDate, totalHours, totalExpenseAmt, clientNameFor)
       const win = window.open('', '_blank')
       if (win) {
         win.document.write(html)
@@ -147,7 +165,7 @@ export default function ExportDialog({ onClose }: ExportDialogProps) {
         TIME_CATEGORIES.find((c) => c.value === entry.category)?.label || entry.category,
         `"${(entry.description || '').replace(/"/g, '""')}"`,
         entry.billable ? 'Yes' : 'No',
-        `"${(entry.client_name || '').replace(/"/g, '""')}"`,
+        `"${clientNameFor(entry).replace(/"/g, '""')}"`,
         entry.rate_override ?? '',
         entry.created_at,
       ].join(','))
@@ -281,7 +299,8 @@ function buildPdfHtml(
   startDate: string,
   endDate: string,
   totalHours: number,
-  totalExpenses: number
+  totalExpenses: number,
+  clientNameFor: (entry: TimeEntry) => string
 ): string {
   const timeRows = timeEntries
     .map(
@@ -291,7 +310,7 @@ function buildPdfHtml(
         <td>${TIME_CATEGORIES.find((c) => c.value === e.category)?.label || e.category}</td>
         <td>${e.description || ''}</td>
         <td>${e.billable ? 'Yes' : ''}</td>
-        <td>${e.client_name || ''}</td>
+        <td>${clientNameFor(e)}</td>
       </tr>`
     )
     .join('')

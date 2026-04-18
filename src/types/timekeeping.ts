@@ -28,7 +28,6 @@ export interface TimeEntry {
   description: string | null
   task_id: string | null
   billable: boolean
-  client_name: string | null
   rate_override: number | null
   engagement_id: string | null
   created_at: string
@@ -57,7 +56,6 @@ export interface TimeEntryFormData {
   description: string
   task_id: string | null
   billable: boolean
-  client_name: string
   rate_override: number | null
   engagement_id?: string | null
 }

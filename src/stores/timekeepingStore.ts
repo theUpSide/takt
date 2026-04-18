@@ -39,7 +39,6 @@ interface TimekeepingState {
   getRecentEntries: (limit?: number) => Array<{ type: 'time' | 'expense'; date: string; entry: TimeEntry | Expense }>
   getSweatEquityTotal: (rate: number) => number
   getDistinctVendors: () => string[]
-  getDistinctClientNames: () => string[]
 
   // Subscriptions
   subscribeToChanges: () => () => void
@@ -93,7 +92,6 @@ export const useTimekeepingStore = create<TimekeepingState>((set, get) => ({
         description: data.description || null,
         task_id: data.task_id,
         billable: data.billable,
-        client_name: data.billable ? (data.client_name || null) : null,
         rate_override: data.rate_override,
         engagement_id: data.engagement_id ?? null,
       })
@@ -470,13 +468,6 @@ export const useTimekeepingStore = create<TimekeepingState>((set, get) => ({
       .map((e) => e.vendor)
       .filter((v): v is string => v !== null && v !== '')
     return [...new Set(vendors)].sort()
-  },
-
-  getDistinctClientNames: () => {
-    const names = get().timeEntries
-      .map((e) => e.client_name)
-      .filter((n): n is string => n !== null && n !== '')
-    return [...new Set(names)].sort()
   },
 
   subscribeToChanges: () => {

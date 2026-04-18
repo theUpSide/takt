@@ -256,7 +256,7 @@ function summarizeEngagement(
 }
 
 function computeClientLastActivity(
-  client: Client,
+  _client: Client,
   clientEngagements: Engagement[],
   items: Item[],
   timeEntries: TimeEntry[]
@@ -265,16 +265,8 @@ function computeClientLastActivity(
 
   const candidates: Date[] = []
 
-  // Time entries linked to any of this client's engagements, plus legacy
-  // entries that only have client_name matching.
-  const nameMatch = client.name.trim().toLowerCase()
   for (const t of timeEntries) {
-    const matchesEngagement = t.engagement_id && engagementIds.has(t.engagement_id)
-    const matchesLegacy =
-      !t.engagement_id &&
-      t.client_name &&
-      t.client_name.trim().toLowerCase() === nameMatch
-    if (matchesEngagement || matchesLegacy) {
+    if (t.engagement_id && engagementIds.has(t.engagement_id)) {
       candidates.push(parseISO(t.entry_date))
     }
   }
