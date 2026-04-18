@@ -142,7 +142,7 @@ export interface ParsedSmsResult {
 }
 
 // View types
-export type ViewType = 'kanban' | 'list' | 'gantt' | 'planner' | 'time' | 'clients' | 'review' | 'revenue'
+export type ViewType = 'kanban' | 'list' | 'gantt' | 'planner' | 'time' | 'clients' | 'review' | 'revenue' | 'pipeline'
 
 // Re-export timekeeping types
 export type {
@@ -162,6 +162,7 @@ export type {
   RelationshipStatus,
   EngagementType,
   EngagementStatus,
+  PursuitStage,
   Client,
   Engagement,
   ClientFormData,
@@ -171,6 +172,7 @@ export {
   RELATIONSHIP_STATUSES,
   ENGAGEMENT_TYPES,
   ENGAGEMENT_STATUSES,
+  PURSUIT_STAGES,
 } from './engagement'
 
 // Re-export deliverable types

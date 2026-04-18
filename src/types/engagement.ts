@@ -7,6 +7,13 @@ export type EngagementType = 'hourly_1099' | 'retainer' | 'fixed_price' | 'pursu
 
 export type EngagementStatus = 'active' | 'paused' | 'complete' | 'lost'
 
+export type PursuitStage =
+  | 'initial_contact'
+  | 'qualification'
+  | 'proposal'
+  | 'negotiation'
+  | 'decision_pending'
+
 export interface Client {
   id: string
   user_id: string
@@ -36,6 +43,7 @@ export interface Engagement {
   status: EngagementStatus
   scope_description: string | null
   charge_account_id: string | null
+  pursuit_stage: PursuitStage | null
   created_at: string
   updated_at: string
   // Joined relations
@@ -86,4 +94,12 @@ export const ENGAGEMENT_STATUSES: { value: EngagementStatus; label: string }[] =
   { value: 'paused', label: 'Paused' },
   { value: 'complete', label: 'Complete' },
   { value: 'lost', label: 'Lost' },
+]
+
+export const PURSUIT_STAGES: { value: PursuitStage; label: string }[] = [
+  { value: 'initial_contact', label: 'Initial Contact' },
+  { value: 'qualification', label: 'Qualification' },
+  { value: 'proposal', label: 'Proposal' },
+  { value: 'negotiation', label: 'Negotiation' },
+  { value: 'decision_pending', label: 'Decision Pending' },
 ]

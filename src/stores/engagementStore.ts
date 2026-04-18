@@ -74,6 +74,9 @@ export const useEngagementStore = create<EngagementState>((set, get) => ({
         status: data.status,
         scope_description: data.scope_description || null,
         charge_account_id: data.charge_account_id,
+        // New pursuits default to the first pipeline stage so they show up
+        // on the board immediately; non-pursuits leave this null.
+        pursuit_stage: data.engagement_type === 'pursuit' ? 'initial_contact' : null,
       })
       .select()
       .single()
