@@ -6,10 +6,23 @@ interface SettingsState {
   timezone: string
   // Whether to auto-detect timezone from device
   autoDetectTimezone: boolean
+  // Monthly revenue target in dollars, used by the revenue view
+  monthlyRevenueTarget: number | null
+  // Business info used on invoices
+  businessName: string
+  businessAddress: string
+  businessEmail: string
+  // Starting invoice number; invoice view increments from this per engagement
+  invoiceNumberPrefix: string
 
   // Actions
   setTimezone: (timezone: string) => void
   setAutoDetectTimezone: (autoDetect: boolean) => void
+  setMonthlyRevenueTarget: (target: number | null) => void
+  setBusinessName: (name: string) => void
+  setBusinessAddress: (address: string) => void
+  setBusinessEmail: (email: string) => void
+  setInvoiceNumberPrefix: (prefix: string) => void
   detectTimezone: () => string
 }
 
@@ -61,6 +74,11 @@ export const useSettingsStore = create<SettingsState>()(
     (set, get) => ({
       timezone: getDeviceTimezone(),
       autoDetectTimezone: true,
+      monthlyRevenueTarget: null,
+      businessName: 'Indy-Pendent Solutions',
+      businessAddress: '',
+      businessEmail: '',
+      invoiceNumberPrefix: 'INV',
 
       setTimezone: (timezone) => {
         set({ timezone, autoDetectTimezone: false })
@@ -74,6 +92,15 @@ export const useSettingsStore = create<SettingsState>()(
           set({ autoDetectTimezone: autoDetect })
         }
       },
+
+      setMonthlyRevenueTarget: (target) => {
+        set({ monthlyRevenueTarget: target })
+      },
+
+      setBusinessName: (name) => set({ businessName: name }),
+      setBusinessAddress: (address) => set({ businessAddress: address }),
+      setBusinessEmail: (email) => set({ businessEmail: email }),
+      setInvoiceNumberPrefix: (prefix) => set({ invoiceNumberPrefix: prefix }),
 
       detectTimezone: () => {
         const detected = getDeviceTimezone()

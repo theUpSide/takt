@@ -7,6 +7,9 @@ import { useItemStore } from '@/stores/itemStore'
 import { useCategoryStore } from '@/stores/categoryStore'
 import { useThemeStore } from '@/stores/themeStore'
 import { useTimekeepingStore } from '@/stores/timekeepingStore'
+import { useClientStore } from '@/stores/clientStore'
+import { useEngagementStore } from '@/stores/engagementStore'
+import { useDeliverableStore } from '@/stores/deliverableStore'
 import ItemModal from '@/components/Items/ItemModal'
 import BatchActionToolbar from '@/components/Common/BatchActionToolbar'
 
@@ -19,8 +22,12 @@ export default function Layout() {
   const {
     fetchTimeEntries,
     fetchExpenses,
+    fetchChargeAccounts,
     subscribeToChanges: subscribeTimekeeping,
   } = useTimekeepingStore()
+  const { fetchClients, subscribeToChanges: subscribeClients } = useClientStore()
+  const { fetchEngagements, subscribeToChanges: subscribeEngagements } = useEngagementStore()
+  const { fetchDeliverables, subscribeToChanges: subscribeDeliverables } = useDeliverableStore()
 
   useEffect(() => {
     // Fetch initial data
@@ -29,18 +36,44 @@ export default function Layout() {
     fetchCategories()
     fetchTimeEntries()
     fetchExpenses()
+    fetchChargeAccounts()
+    fetchClients()
+    fetchEngagements()
+    fetchDeliverables()
 
     // Subscribe to real-time updates
     const unsubItems = subscribeItems()
     const unsubCategories = subscribeCategories()
     const unsubTimekeeping = subscribeTimekeeping()
+    const unsubClients = subscribeClients()
+    const unsubEngagements = subscribeEngagements()
+    const unsubDeliverables = subscribeDeliverables()
 
     return () => {
       unsubItems()
       unsubCategories()
       unsubTimekeeping()
+      unsubClients()
+      unsubEngagements()
+      unsubDeliverables()
     }
-  }, [fetchItems, fetchDependencies, fetchCategories, subscribeItems, subscribeCategories, fetchTimeEntries, fetchExpenses, subscribeTimekeeping])
+  }, [
+    fetchItems,
+    fetchDependencies,
+    fetchCategories,
+    subscribeItems,
+    subscribeCategories,
+    fetchTimeEntries,
+    fetchExpenses,
+    fetchChargeAccounts,
+    subscribeTimekeeping,
+    fetchClients,
+    subscribeClients,
+    fetchEngagements,
+    subscribeEngagements,
+    fetchDeliverables,
+    subscribeDeliverables,
+  ])
 
   // Apply theme class to document element
   useEffect(() => {

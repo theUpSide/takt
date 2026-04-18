@@ -191,7 +191,7 @@ IMPORTANT for task_graph:
   "description": "What was done",
   "entry_date": "YYYY-MM-DD",
   "billable": false,
-  "client_name": null,
+  "engagement_hint": null,
   "charge_account_name": null
 }
 
@@ -200,9 +200,9 @@ LOG_TIME rules:
 - Map to the EXACT category values: product_dev, bd_outreach, client_work, content, admin, professional_dev
 - Natural language mapping: "product dev" / "building" / "coding" -> product_dev, "BD" / "outreach" / "sales" -> bd_outreach, "client" / "consulting" -> client_work, "content" / "writing" / "blog" -> content, "admin" / "invoicing" / "bookkeeping" -> admin, "learning" / "course" / "training" -> professional_dev
 - Set billable=true ONLY for client_work category
-- Extract client_name from context when billable (e.g., "client work for ATC" -> client_name: "ATC")
+- ENGAGEMENT HINT: If the message references a client, engagement, or project by name, set engagement_hint to the referenced name. The server resolves this to an engagement. Prefer matching against the "Active engagements" context when provided. Examples: "client work for ATC" -> engagement_hint: "ATC", "2h on DLA pursuit" -> engagement_hint: "DLA pursuit", "1h Hudson Edge LogCap review" -> engagement_hint: "Hudson Edge LogCap"
 - Default entry_date to today unless specified (e.g., "yesterday" = yesterday's date)
-- CHARGE ACCOUNTS: If the user's message includes a known charge account name (provided in context as "Available charge accounts"), set charge_account_name to the exact account name. The system will then look up and apply that account's billing settings (billable, client_name, rate). Example: "logged 2h Acme Corp - strategy call" with "Acme Corp" in available accounts → charge_account_name: "Acme Corp"
+- CHARGE ACCOUNTS: If the message includes a known charge account name (provided in context as "Available charge accounts"), set charge_account_name to the exact account name. The server will apply that account's billing settings (billable, rate) and resolve an engagement if the account is linked to one. Example: "logged 2h Acme Corp - strategy call" with "Acme Corp" in available accounts → charge_account_name: "Acme Corp"
 
 ### For LOG_EXPENSE:
 {
@@ -283,19 +283,19 @@ Input: "| ID | Task | Predecessor(s) |\n| 1 | Design | — |\n| 2 | Review | 1 |
 Output: {"action":"task_graph","tasks":[{"temp_id":"1","title":"Design","description":null,"predecessors":[]},{"temp_id":"2","title":"Review","description":null,"predecessors":["1"]},{"temp_id":"3","title":"Implement","description":null,"predecessors":["1","2"]}],"category_hint":"Work","message":"Created 3 tasks with dependencies"}
 
 Input: "logged 2h product dev - built SAM scanner"
-Output: {"action":"log_time","hours":2,"category":"product_dev","description":"Built SAM scanner","entry_date":"[today]","billable":false,"client_name":null}
+Output: {"action":"log_time","hours":2,"category":"product_dev","description":"Built SAM scanner","entry_date":"[today]","billable":false,"engagement_hint":null}
 
 Input: "logged 1.5 hours client work - review for ATC"
-Output: {"action":"log_time","hours":1.5,"category":"client_work","description":"Review for ATC","entry_date":"[today]","billable":true,"client_name":"ATC"}
+Output: {"action":"log_time","hours":1.5,"category":"client_work","description":"Review for ATC","entry_date":"[today]","billable":true,"engagement_hint":"ATC"}
 
 Input: "30min admin - invoicing"
-Output: {"action":"log_time","hours":0.5,"category":"admin","description":"Invoicing","entry_date":"[today]","billable":false,"client_name":null}
+Output: {"action":"log_time","hours":0.5,"category":"admin","description":"Invoicing","entry_date":"[today]","billable":false,"engagement_hint":null}
 
 Input: "Log 1.5 hrs of development work (IP dev) with a note that says \"developed and deployed time and expense tracking\". Not billable to a client."
-Output: {"action":"log_time","hours":1.5,"category":"product_dev","description":"Developed and deployed time and expense tracking","entry_date":"[today]","billable":false,"client_name":null}
+Output: {"action":"log_time","hours":1.5,"category":"product_dev","description":"Developed and deployed time and expense tracking","entry_date":"[today]","billable":false,"engagement_hint":null}
 
 Input: "log 3 hours product dev - refactored auth module. not billable"
-Output: {"action":"log_time","hours":3,"category":"product_dev","description":"Refactored auth module","entry_date":"[today]","billable":false,"client_name":null}
+Output: {"action":"log_time","hours":3,"category":"product_dev","description":"Refactored auth module","entry_date":"[today]","billable":false,"engagement_hint":null}
 
 Input: "expense $49.99 software_tools - Claude Pro subscription"
 Output: {"action":"log_expense","amount":49.99,"category":"software_tools","vendor":"Anthropic","description":"Claude Pro subscription","expense_date":"[today]","is_recurring":true}
@@ -777,6 +777,7 @@ Use these EXACT dates when the user mentions relative days.`
       .single()
 
     let chargeAccountsContext = ''
+    let engagementsContext = ''
     if (smsUserPhone?.user_id) {
       const { data: chargeAccounts } = await supabase
         .from('charge_accounts')
@@ -788,6 +789,27 @@ Use these EXACT dates when the user mentions relative days.`
           `"${a.name}" (${a.billable ? `billable, client: ${a.client_name || 'unspecified'}${a.hourly_rate ? `, $${a.hourly_rate}/hr` : ''}` : 'internal/non-billable'})`
         ).join(', ')
         chargeAccountsContext = `\nAvailable charge accounts: ${accountList}`
+      }
+
+      // Active engagements context helps the LLM resolve engagement_hint
+      // to something the server can match unambiguously.
+      const { data: activeEngagements } = await supabase
+        .from('engagements')
+        .select('title, billing_rate, engagement_type, client:clients(name)')
+        .eq('user_id', smsUserPhone.user_id)
+        .eq('status', 'active')
+        .order('title')
+      if (activeEngagements && activeEngagements.length > 0) {
+        const engagementList = activeEngagements
+          .map((e: { title: string; billing_rate: number | null; engagement_type: string; client: { name: string } | { name: string }[] | null }) => {
+            const clientName = Array.isArray(e.client)
+              ? e.client[0]?.name ?? 'unknown'
+              : e.client?.name ?? 'unknown'
+            const rate = e.billing_rate ? `, $${e.billing_rate}/hr` : ''
+            return `"${clientName} — ${e.title}" (${e.engagement_type}${rate})`
+          })
+          .join(', ')
+        engagementsContext = `\nActive engagements: ${engagementList}`
       }
     }
 
@@ -804,7 +826,7 @@ Use these EXACT dates when the user mentions relative days.`
         messages: [
           {
             role: 'user',
-            content: `${dateContext}\n\nAvailable categories in the app: ${categoryList}${chargeAccountsContext}\n\nParse this SMS message and extract all tasks/events:\n"${body}"`,
+            content: `${dateContext}\n\nAvailable categories in the app: ${categoryList}${chargeAccountsContext}${engagementsContext}\n\nParse this SMS message and extract all tasks/events:\n"${body}"`,
           },
         ],
       })
@@ -1392,24 +1414,88 @@ Use these EXACT dates when the user mentions relative days.`
 
         // Apply charge account settings if one was matched
         let timeBillable = parsed.billable || false
-        let timeClientName = parsed.client_name || null
         let timeRateOverride: number | null = null
         let chargeAccountLabel: string | null = null
+        let matchedChargeAccountId: string | null = null
 
         if (parsed.charge_account_name) {
           const { data: matchedAccount } = await supabase
             .from('charge_accounts')
-            .select('name, billable, client_name, hourly_rate')
+            .select('id, name, billable, hourly_rate')
             .eq('user_id', userPhone.user_id)
             .ilike('name', parsed.charge_account_name)
             .single()
 
           if (matchedAccount) {
             timeBillable = matchedAccount.billable
-            timeClientName = matchedAccount.client_name || null
             timeRateOverride = matchedAccount.hourly_rate || null
             chargeAccountLabel = matchedAccount.name
+            matchedChargeAccountId = matchedAccount.id
             console.log(`Applied charge account: ${matchedAccount.name}`)
+          }
+        }
+
+        // Resolve engagement_id from hint. Order:
+        //   1. Engagement title match (case-insensitive)
+        //   2. Charge account → its linked engagement (if account matched above)
+        //   3. Client name match → if that client has exactly one active
+        //      engagement, use it
+        // Otherwise engagement_id stays null and the entry is unlinked.
+        let timeEngagementId: string | null = null
+        const hint: string | null =
+          typeof parsed.engagement_hint === 'string' && parsed.engagement_hint.trim() !== ''
+            ? parsed.engagement_hint.trim()
+            : null
+
+        if (hint) {
+          const { data: engByTitle } = await supabase
+            .from('engagements')
+            .select('id')
+            .eq('user_id', userPhone.user_id)
+            .ilike('title', hint)
+            .limit(1)
+            .maybeSingle()
+          if (engByTitle) {
+            timeEngagementId = engByTitle.id
+            console.log(`Resolved engagement by title: ${hint}`)
+          }
+        }
+
+        if (!timeEngagementId && matchedChargeAccountId) {
+          const { data: engByAccount } = await supabase
+            .from('engagements')
+            .select('id')
+            .eq('user_id', userPhone.user_id)
+            .eq('charge_account_id', matchedChargeAccountId)
+            .eq('status', 'active')
+            .limit(1)
+            .maybeSingle()
+          if (engByAccount) {
+            timeEngagementId = engByAccount.id
+            console.log(`Resolved engagement via charge account: ${chargeAccountLabel}`)
+          }
+        }
+
+        if (!timeEngagementId && hint) {
+          // Client name match; only auto-pick if that client has exactly one
+          // active engagement, otherwise we don't want to guess.
+          const { data: clientRow } = await supabase
+            .from('clients')
+            .select('id')
+            .eq('user_id', userPhone.user_id)
+            .ilike('name', hint)
+            .maybeSingle()
+          if (clientRow) {
+            const { data: activeEngagements } = await supabase
+              .from('engagements')
+              .select('id')
+              .eq('user_id', userPhone.user_id)
+              .eq('client_id', clientRow.id)
+              .eq('status', 'active')
+            if (activeEngagements?.length === 1) {
+              timeEngagementId = activeEngagements[0].id
+              console.log(`Resolved engagement via client name (single active): ${hint}`)
+            }
           }
         }
 
@@ -1424,8 +1510,8 @@ Use these EXACT dates when the user mentions relative days.`
             category: timeCategory,
             description: parsed.description || null,
             billable: timeBillable,
-            client_name: timeClientName,
             rate_override: timeRateOverride,
+            engagement_id: timeEngagementId,
           })
           .select()
           .single()
@@ -1453,7 +1539,23 @@ Use these EXACT dates when the user mentions relative days.`
         }
         const timeCatLabel = timeCategoryLabels[timeCategory] || timeCategory
         const billableTag = timeBillable ? ' (billable)' : ''
-        const clientTag = timeClientName ? ` for ${timeClientName}` : ''
+
+        // Look up the resolved engagement's client name for the confirmation message.
+        let clientTag = ''
+        if (timeEngagementId) {
+          const { data: engRow } = await supabase
+            .from('engagements')
+            .select('title, client:clients(name)')
+            .eq('id', timeEngagementId)
+            .maybeSingle()
+          if (engRow) {
+            const clientRel = engRow.client as { name: string } | { name: string }[] | null
+            const clientName = Array.isArray(clientRel)
+              ? clientRel[0]?.name
+              : clientRel?.name
+            if (clientName) clientTag = ` for ${clientName}`
+          }
+        }
         const accountTag = chargeAccountLabel ? ` [${chargeAccountLabel}]` : ''
 
         confirmationMsg = `Logged ${parsed.hours}h ${timeCatLabel}${clientTag}${billableTag}${accountTag}: "${parsed.description || 'No description'}"`

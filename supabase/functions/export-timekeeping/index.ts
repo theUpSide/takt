@@ -34,8 +34,8 @@ interface TimeEntry {
   category: string
   description: string | null
   billable: boolean
-  client_name: string | null
   rate_override: number | null
+  engagement_id: string | null
   created_at: string
 }
 
@@ -62,6 +62,7 @@ function generateCSV(
   timeEntries: TimeEntry[],
   expenses: Expense[],
   includeExpenses: boolean,
+  clientNameFor: (entry: TimeEntry) => string,
 ): string {
   const lines: string[] = []
 
@@ -76,7 +77,7 @@ function generateCSV(
       TIME_CATEGORY_LABELS[e.category] || e.category,
       `"${(e.description || '').replace(/"/g, '""')}"`,
       e.billable ? 'Yes' : 'No',
-      `"${(e.client_name || '').replace(/"/g, '""')}"`,
+      `"${clientNameFor(e).replace(/"/g, '""')}"`,
       e.rate_override ?? '',
       e.created_at,
       bh,
@@ -142,6 +143,7 @@ function generatePdfHtml(
   startDate: string,
   endDate: string,
   includeExpenses: boolean,
+  clientNameFor: (entry: TimeEntry) => string,
 ): string {
   const totalHours = timeEntries.reduce((s, e) => s + Number(e.hours), 0)
   const totalExpenses = expenses.reduce((s, e) => s + Number(e.amount), 0)
@@ -166,7 +168,7 @@ function generatePdfHtml(
       <td>${TIME_CATEGORY_LABELS[e.category] || e.category}</td>
       <td>${escapeHtml(e.description || '')}</td>
       <td>${e.billable ? 'Yes' : ''}</td>
-      <td>${escapeHtml(e.client_name || '')}</td>
+      <td>${escapeHtml(clientNameFor(e))}</td>
       <td style="font-size:10px;color:#999">${e.created_at.split('T')[0]}${bhFlag}</td>
     </tr>`
   }).join('')
@@ -366,8 +368,29 @@ serve(async (req) => {
     const entries = (timeEntries || []) as TimeEntry[]
     const shouldIncludeExpenses = include_expenses !== false
 
+    // Build engagement_id -> client name lookup so exports can label the
+    // "Client" column without storing it denormalized on each time entry.
+    const { data: engagementData } = await supabase
+      .from('engagements')
+      .select('id, client_id')
+      .eq('user_id', user.id)
+    const { data: clientData } = await supabase
+      .from('clients')
+      .select('id, name')
+      .eq('user_id', user.id)
+
+    const clientsById = new Map<string, string>()
+    for (const c of clientData || []) clientsById.set(c.id, c.name)
+    const clientByEngagement = new Map<string, string>()
+    for (const e of engagementData || []) {
+      const name = clientsById.get(e.client_id)
+      if (name) clientByEngagement.set(e.id, name)
+    }
+    const clientNameFor = (entry: TimeEntry): string =>
+      entry.engagement_id ? clientByEngagement.get(entry.engagement_id) ?? '' : ''
+
     if (format === 'csv') {
-      const csv = generateCSV(entries, expenses, shouldIncludeExpenses)
+      const csv = generateCSV(entries, expenses, shouldIncludeExpenses, clientNameFor)
       return new Response(csv, {
         status: 200,
         headers: {
@@ -377,7 +400,7 @@ serve(async (req) => {
         },
       })
     } else {
-      const html = generatePdfHtml(entries, expenses, start_date, end_date, shouldIncludeExpenses)
+      const html = generatePdfHtml(entries, expenses, start_date, end_date, shouldIncludeExpenses, clientNameFor)
       return new Response(html, {
         status: 200,
         headers: {

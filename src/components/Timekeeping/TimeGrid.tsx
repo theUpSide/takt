@@ -1,6 +1,7 @@
 import { useEffect, useRef, useMemo } from 'react'
 import { format, addDays, isToday, isWeekend } from 'date-fns'
 import { useTimekeepingStore } from '@/stores/timekeepingStore'
+import { useEngagementStore } from '@/stores/engagementStore'
 
 const DAYS_BACK = 365
 const DAYS_FORWARD = 14
@@ -14,6 +15,7 @@ function fmt(h: number): string {
 
 export default function TimeGrid() {
   const { timeEntries, chargeAccounts, fetchTimeEntries } = useTimekeepingStore()
+  const engagements = useEngagementStore((s) => s.engagements)
   const scrollRef = useRef<HTMLDivElement>(null)
   const didScroll = useRef(false)
 
@@ -38,15 +40,25 @@ export default function TimeGrid() {
     )
   }, [])
 
+  // Map engagement_id -> charge_account_id so we can group entries by account
+  // via their engagement linkage.
+  const engagementToAccount = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const e of engagements) {
+      if (e.charge_account_id) map.set(e.id, e.charge_account_id)
+    }
+    return map
+  }, [engagements])
+
+  const resolveRowId = (entry: { engagement_id: string | null }): string => {
+    if (!entry.engagement_id) return '__other__'
+    return engagementToAccount.get(entry.engagement_id) ?? '__other__'
+  }
+
   // Build rows: charge accounts + catch-all
   const rows = useMemo(() => {
     const accountRows = chargeAccounts.map((a) => ({ id: a.id, label: a.name }))
-    const hasUnmatched = timeEntries.some((entry) => {
-      if (!entry.client_name) return true
-      return !chargeAccounts.some(
-        (a) => a.client_name?.toLowerCase() === entry.client_name!.toLowerCase()
-      )
-    })
+    const hasUnmatched = timeEntries.some((entry) => resolveRowId(entry) === '__other__')
     if (hasUnmatched || chargeAccounts.length === 0) {
       accountRows.push({
         id: '__other__',
@@ -54,7 +66,8 @@ export default function TimeGrid() {
       })
     }
     return accountRows
-  }, [chargeAccounts, timeEntries])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chargeAccounts, timeEntries, engagementToAccount])
 
   // date → rowId → hours
   const lookup = useMemo(() => {
@@ -62,17 +75,12 @@ export default function TimeGrid() {
     for (const entry of timeEntries) {
       const d = entry.entry_date
       if (!map[d]) map[d] = {}
-      let rowId = '__other__'
-      if (entry.client_name) {
-        const match = chargeAccounts.find(
-          (a) => a.client_name?.toLowerCase() === entry.client_name!.toLowerCase()
-        )
-        if (match) rowId = match.id
-      }
+      const rowId = resolveRowId(entry)
       map[d][rowId] = (map[d][rowId] || 0) + Number(entry.hours)
     }
     return map
-  }, [timeEntries, chargeAccounts])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timeEntries, engagementToAccount])
 
   const rowTotals = useMemo(() => {
     const t: Record<string, number> = {}

@@ -1,3 +1,5 @@
+import type { Engagement } from './engagement'
+
 // Item types
 export type ItemType = 'task' | 'event'
 export type ItemSource = 'manual' | 'sms' | 'ics'
@@ -27,11 +29,14 @@ export interface Item {
   duration_minutes: number | null  // How long the task takes (default: 30)
   // Subtask support
   parent_id: string | null         // Parent task ID for subtasks
+  // Engagement linkage (for client-work action tracking)
+  engagement_id: string | null
   // Joined relations
   category?: Category | null
   project?: Project | null
   parent?: Item | null             // Parent item (when fetched)
   children?: Item[]                // Child subtasks (when fetched)
+  engagement?: Engagement | null
 }
 
 export interface Task extends Item {
@@ -137,7 +142,7 @@ export interface ParsedSmsResult {
 }
 
 // View types
-export type ViewType = 'kanban' | 'list' | 'gantt' | 'planner' | 'time'
+export type ViewType = 'kanban' | 'list' | 'gantt' | 'planner' | 'time' | 'clients' | 'review' | 'revenue' | 'pipeline'
 
 // Re-export timekeeping types
 export type {
@@ -147,8 +152,31 @@ export type {
   Expense,
   TimeEntryFormData,
   ExpenseFormData,
+  ChargeAccount,
+  ChargeAccountFormData,
 } from './timekeeping'
 export { TIME_CATEGORIES, EXPENSE_CATEGORIES } from './timekeeping'
+
+// Re-export engagement types
+export type {
+  RelationshipStatus,
+  EngagementType,
+  EngagementStatus,
+  PursuitStage,
+  Client,
+  Engagement,
+  ClientFormData,
+  EngagementFormData,
+} from './engagement'
+export {
+  RELATIONSHIP_STATUSES,
+  ENGAGEMENT_TYPES,
+  ENGAGEMENT_STATUSES,
+  PURSUIT_STAGES,
+} from './engagement'
+
+// Re-export deliverable types
+export type { Deliverable, DeliverableFormData } from './deliverable'
 
 // Form types
 export interface TaskFormData {

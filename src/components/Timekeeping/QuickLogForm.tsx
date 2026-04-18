@@ -7,6 +7,7 @@ import { useItemStore } from '@/stores/itemStore'
 import { getTodayString } from '@/lib/dateUtils'
 import { TIME_CATEGORIES } from '@/types/timekeeping'
 import type { TimeCategory, TimeEntryFormData } from '@/types/timekeeping'
+import EngagementPicker from '@/components/Clients/EngagementPicker'
 import HoursStepper from './HoursStepper'
 import CategoryPills from './CategoryPills'
 
@@ -20,8 +21,8 @@ const schema = z.object({
   description: z.string(),
   task_id: z.string().nullable(),
   billable: z.boolean(),
-  client_name: z.string(),
   rate_override: z.number().nullable(),
+  engagement_id: z.string().nullable().optional(),
 })
 
 interface QuickLogFormProps {
@@ -29,7 +30,7 @@ interface QuickLogFormProps {
 }
 
 export default function QuickLogForm({ onSwitchToExpense }: QuickLogFormProps) {
-  const { createTimeEntry, getDistinctClientNames, chargeAccounts } = useTimekeepingStore()
+  const { createTimeEntry, chargeAccounts } = useTimekeepingStore()
   const items = useItemStore((s) => s.items)
   const [saving, setSaving] = useState(false)
   const [selectedAccountId, setSelectedAccountId] = useState<string>('')
@@ -41,7 +42,7 @@ export default function QuickLogForm({ onSwitchToExpense }: QuickLogFormProps) {
     }
   })
 
-  const { control, handleSubmit, reset, watch, setValue } = useForm<TimeEntryFormData>({
+  const { control, handleSubmit, reset, setValue } = useForm<TimeEntryFormData>({
     resolver: zodResolver(schema),
     defaultValues: {
       entry_date: getTodayString(),
@@ -50,27 +51,23 @@ export default function QuickLogForm({ onSwitchToExpense }: QuickLogFormProps) {
       description: '',
       task_id: null,
       billable: false,
-      client_name: '',
       rate_override: null,
+      engagement_id: null,
     },
   })
 
-  const billable = watch('billable')
-  const clientNames = getDistinctClientNames()
   const tasks = items.filter((i) => i.type === 'task' && !i.completed)
 
   const handleAccountChange = (accountId: string) => {
     setSelectedAccountId(accountId)
     if (!accountId) {
       setValue('billable', false)
-      setValue('client_name', '')
       setValue('rate_override', null)
       return
     }
     const account = chargeAccounts.find((a) => a.id === accountId)
     if (account) {
       setValue('billable', account.billable)
-      setValue('client_name', account.client_name ?? '')
       setValue('rate_override', account.hourly_rate)
     }
   }
@@ -96,8 +93,8 @@ export default function QuickLogForm({ onSwitchToExpense }: QuickLogFormProps) {
         description: '',
         task_id: null,
         billable: false,
-        client_name: '',
         rate_override: null,
+        engagement_id: null,
       })
     }
   }
@@ -205,6 +202,36 @@ export default function QuickLogForm({ onSwitchToExpense }: QuickLogFormProps) {
         />
       </div>
 
+      {/* Engagement picker — auto-fills billable and rate from the chosen engagement.
+          The engagement is the source of truth for which client the entry belongs to. */}
+      <div>
+        <label htmlFor="engagement" className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-theme-text-muted">
+          Engagement (optional)
+        </label>
+        <Controller
+          name="engagement_id"
+          control={control}
+          render={({ field }) => (
+            <EngagementPicker
+              id="engagement"
+              value={field.value ?? null}
+              onChange={(id, engagement) => {
+                field.onChange(id)
+                if (engagement) {
+                  // hourly/retainer/fixed carry a billable rate; pursuit is pre-revenue.
+                  const isBillable =
+                    engagement.engagement_type === 'hourly_1099' ||
+                    engagement.engagement_type === 'retainer' ||
+                    engagement.engagement_type === 'fixed_price'
+                  setValue('billable', isBillable)
+                  setValue('rate_override', engagement.billing_rate)
+                }
+              }}
+            />
+          )}
+        />
+      </div>
+
       {/* Charge Account selector */}
       {chargeAccounts.length > 0 && (
         <div>
@@ -253,56 +280,37 @@ export default function QuickLogForm({ onSwitchToExpense }: QuickLogFormProps) {
         />
       </div>
 
-      {/* Billable fields (shown when toggle is on) */}
-      {billable && (
-        <div className="flex flex-col gap-3 rounded-lg border border-theme-border-primary bg-theme-bg-tertiary/50 p-3">
-          <div>
-            <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-theme-text-muted">
-              Client Name
-            </label>
-            <Controller
-              name="client_name"
-              control={control}
-              render={({ field }) => (
-                <>
-                  <input
-                    type="text"
-                    {...field}
-                    list="client-names"
-                    placeholder="Client name"
-                    className="w-full rounded-lg border border-theme-border-primary bg-theme-bg-tertiary px-3 py-2 text-sm text-theme-text-primary placeholder:text-theme-text-muted focus:border-theme-accent-primary focus:outline-none focus-glow transition-all-fast"
-                  />
-                  <datalist id="client-names">
-                    {clientNames.map((name) => (
-                      <option key={name} value={name} />
-                    ))}
-                  </datalist>
-                </>
-              )}
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-theme-text-muted">
-              Rate Override ($/hr)
-            </label>
-            <Controller
-              name="rate_override"
-              control={control}
-              render={({ field }) => (
-                <input
-                  type="number"
-                  value={field.value ?? ''}
-                  onChange={(e) => field.onChange(e.target.value ? Number(e.target.value) : null)}
-                  placeholder="Default rate"
-                  step="0.01"
-                  min="0"
-                  className="w-full rounded-lg border border-theme-border-primary bg-theme-bg-tertiary px-3 py-2 text-sm text-theme-text-primary placeholder:text-theme-text-muted focus:border-theme-accent-primary focus:outline-none focus-glow transition-all-fast"
+      {/* Rate override (shown when billable is on) */}
+      <Controller
+        name="billable"
+        control={control}
+        render={({ field: billableField }) =>
+          billableField.value ? (
+            <div className="flex flex-col gap-3 rounded-lg border border-theme-border-primary bg-theme-bg-tertiary/50 p-3">
+              <div>
+                <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-theme-text-muted">
+                  Rate Override ($/hr)
+                </label>
+                <Controller
+                  name="rate_override"
+                  control={control}
+                  render={({ field }) => (
+                    <input
+                      type="number"
+                      value={field.value ?? ''}
+                      onChange={(e) => field.onChange(e.target.value ? Number(e.target.value) : null)}
+                      placeholder="Default rate"
+                      step="0.01"
+                      min="0"
+                      className="w-full rounded-lg border border-theme-border-primary bg-theme-bg-tertiary px-3 py-2 text-sm text-theme-text-primary placeholder:text-theme-text-muted focus:border-theme-accent-primary focus:outline-none focus-glow transition-all-fast"
+                    />
+                  )}
                 />
-              )}
-            />
-          </div>
-        </div>
-      )}
+              </div>
+            </div>
+          ) : <></>
+        }
+      />
 
       {/* Save button */}
       <button
