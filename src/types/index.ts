@@ -173,6 +173,9 @@ export {
   ENGAGEMENT_STATUSES,
 } from './engagement'
 
+// Re-export deliverable types
+export type { Deliverable, DeliverableFormData } from './deliverable'
+
 // Form types
 export interface TaskFormData {
   title: string

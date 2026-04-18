@@ -9,6 +9,7 @@ import {
   ENGAGEMENT_TYPES,
 } from '@/types/engagement'
 import EngagementForm from './EngagementForm'
+import DeliverablesList from './DeliverablesList'
 import { ENGAGEMENT_STATUS_CLASSES } from './statusStyles'
 
 export default function EngagementDetailView() {
@@ -193,6 +194,9 @@ export default function EngagementDetailView() {
           </div>
         )}
       </div>
+
+      {/* Deliverables */}
+      <DeliverablesList engagementId={engagement.id} />
 
       {/* Recent time entries */}
       <div className="flex flex-col gap-2">

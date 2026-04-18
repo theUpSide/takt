@@ -9,6 +9,7 @@ import { useThemeStore } from '@/stores/themeStore'
 import { useTimekeepingStore } from '@/stores/timekeepingStore'
 import { useClientStore } from '@/stores/clientStore'
 import { useEngagementStore } from '@/stores/engagementStore'
+import { useDeliverableStore } from '@/stores/deliverableStore'
 import ItemModal from '@/components/Items/ItemModal'
 import BatchActionToolbar from '@/components/Common/BatchActionToolbar'
 
@@ -26,6 +27,7 @@ export default function Layout() {
   } = useTimekeepingStore()
   const { fetchClients, subscribeToChanges: subscribeClients } = useClientStore()
   const { fetchEngagements, subscribeToChanges: subscribeEngagements } = useEngagementStore()
+  const { fetchDeliverables, subscribeToChanges: subscribeDeliverables } = useDeliverableStore()
 
   useEffect(() => {
     // Fetch initial data
@@ -37,6 +39,7 @@ export default function Layout() {
     fetchChargeAccounts()
     fetchClients()
     fetchEngagements()
+    fetchDeliverables()
 
     // Subscribe to real-time updates
     const unsubItems = subscribeItems()
@@ -44,6 +47,7 @@ export default function Layout() {
     const unsubTimekeeping = subscribeTimekeeping()
     const unsubClients = subscribeClients()
     const unsubEngagements = subscribeEngagements()
+    const unsubDeliverables = subscribeDeliverables()
 
     return () => {
       unsubItems()
@@ -51,6 +55,7 @@ export default function Layout() {
       unsubTimekeeping()
       unsubClients()
       unsubEngagements()
+      unsubDeliverables()
     }
   }, [
     fetchItems,
@@ -66,6 +71,8 @@ export default function Layout() {
     subscribeClients,
     fetchEngagements,
     subscribeEngagements,
+    fetchDeliverables,
+    subscribeDeliverables,
   ])
 
   // Apply theme class to document element
