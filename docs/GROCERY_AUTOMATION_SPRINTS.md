@@ -37,16 +37,16 @@ do not start a sprint until the prior sprint's Definition of Done is met.
 **Goal:** Schema + CRUD for product mappings. No Kroger calls yet.
 
 ### Tickets
-- [ ] **S1-1** Migration: `product_mappings` table (§5.1 schema, unique index on `alias`)
-- [ ] **S1-2** Migration: `oauth_tokens` table with encrypted columns (§5.2)
-- [ ] **S1-3** Migration: `cart_history` table (§5.3) with `JSONB detail_json`
-- [ ] **S1-4** RLS policies: service role full access; anon denied
-- [ ] **S1-5** Edge Function `mappings` — `GET /mappings` list + filter by category
-- [ ] **S1-6** Edge Function `mappings` — `POST /mappings` create with alias uniqueness check
-- [ ] **S1-7** Edge Function `mappings` — `PUT /mappings/:id` update
-- [ ] **S1-8** Edge Function `mappings` — `DELETE /mappings/:id` soft-delete (`is_active=false`)
-- [ ] **S1-9** Seed ~25 mappings from Sprint 0 receipt photos
-- [ ] **S1-10** Unit tests: alias normalization (lowercase, trim, collapse spaces)
+- [x] **S1-1** Migration: `product_mappings` table (§5.1 schema, unique index on alias+UPC)
+- [x] **S1-2** Migration: `kroger_oauth_tokens` table with encrypted columns (§5.2)
+- [x] **S1-3** Migration: `cart_history` table (§5.3) with `JSONB detail_json`
+- [x] **S1-4** RLS policies scoped to `auth.uid() = user_id` per migration 0024 pattern
+- [x] **S1-5** Edge Function `grocery-mappings` — `GET /grocery-mappings` list + filter
+- [x] **S1-6** Edge Function `grocery-mappings` — `POST /grocery-mappings` create
+- [x] **S1-7** Edge Function `grocery-mappings` — `PUT /grocery-mappings/:id` update
+- [x] **S1-8** Edge Function `grocery-mappings` — `DELETE /grocery-mappings/:id` soft-delete
+- [ ] **S1-9** Seed ~25 mappings from Sprint 0 receipt photos _(blocked on S0-6)_
+- [x] **S1-10** Unit tests: alias normalization (lowercase, trim, collapse spaces)
 
 ### Definition of Done
 - All four CRUD endpoints return correct data against local Supabase
